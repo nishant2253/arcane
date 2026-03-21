@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { useWalletStore } from '@/stores/walletStore';
 import { useAgentStore } from '@/stores/agentStore';
+import { WalletConnectButton } from '@/components/WalletConnect';
 import Link from 'next/link';
 import {
   WalletIcon, CopyIcon, ExternalLinkIcon, TrendingUpIcon,
@@ -34,11 +35,7 @@ export default function WalletPage() {
   const { agents, liveSignals, setAgents } = useAgentStore();
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Demo: mock wallet connect (real integration requires HashPack/Blade SDK)
-  const connectDemo = () => {
-    setWallet('0.0.4823901', '0xAbCdEf1234567890abcdef1234567890AbCdEf12', 'DemoWallet', null);
-    setBalance(1248.75);
-  };
+
 
   // Fetch agents when connected
   useEffect(() => {
@@ -73,13 +70,9 @@ export default function WalletPage() {
           </div>
           <h1 className="text-xl font-bold mb-2 font-display" style={{ color: '#E2E8F0' }}>Connect Your Wallet</h1>
           <p className="text-sm mb-8" style={{ color: '#475569' }}>Connect your Hedera account to view balances and manage agents.</p>
-          <button
-            onClick={connectDemo}
-            className="w-full py-3 rounded-xl font-semibold text-sm cursor-pointer transition-all duration-200"
-            style={{ background: 'linear-gradient(135deg, #00A9BA, #1565C0)', color: '#fff', boxShadow: '0 0 24px rgba(0,169,186,0.35)' }}
-          >
-            Connect Wallet (Demo)
-          </button>
+          <div className="flex justify-center w-full mt-4">
+            <WalletConnectButton />
+          </div>
           <p className="text-xs mt-3" style={{ color: '#334155' }}>HashPack · Blade · WalletConnect</p>
         </motion.div>
       </div>

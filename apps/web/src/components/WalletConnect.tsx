@@ -1,12 +1,33 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { useWalletStore } from '@/stores/walletStore'
 import { connectWallet, disconnectWallet } from '@/lib/wallet'
 import { Loader2 } from 'lucide-react'
 
 export function WalletConnectButton() {
-  const { isConnected, accountId, hbarBalance, walletName, setWallet, disconnect } = useWalletStore()
+  const router = useRouter()
+  const { isConnected, accountId, hbarBalance, walletName, setWallet, setBalance, disconnect } = useWalletStore()
   const [loading, setLoading] = useState(false)
+
+  // Fetch balance automatically on mount or when account changes
+  useEffect(() => {
+    if (isConnected && accountId) {
+      const fetchBal = async () => {
+        try {
+          const network = process.env.NEXT_PUBLIC_HEDERA_NETWORK || 'testnet'
+          const res = await fetch(`https://${network}.mirrornode.hedera.com/api/v1/accounts/${accountId}`)
+          const data = await res.json()
+          if (data?.balance?.balance !== undefined) {
+             setBalance(data.balance.balance / 100_000_000)
+          }
+        } catch (e) {
+          console.warn('Failed to fetch balance', e)
+        }
+      }
+      fetchBal()
+    }
+  }, [isConnected, accountId, setBalance])
 
   async function handleConnect() {
     setLoading(true)
@@ -14,19 +35,16 @@ export function WalletConnectButton() {
       const { accountId, evmAddress, walletName, connector } = await connectWallet()
       setWallet(accountId, evmAddress, walletName, connector)
 
-      // Fetch HBAR balance from Mirror Node (free public endpoint)
-      try {
-        const network = process.env.NEXT_PUBLIC_HEDERA_NETWORK || 'testnet'
-        const res = await fetch(`https://${network}.mirrornode.hedera.com/api/v1/accounts/${accountId}`)
-        const data = await res.json()
-        if (data.balance?.balance) {
-          useWalletStore.getState().setBalance(data.balance.balance / 100_000_000)
-        }
-      } catch (e) {
-        console.warn('Failed to fetch balance', e)
+      // Balance relies on the useEffect we just added to fetch globally
+      // Redirect to the wallet dashboard automatically
+      router.push('/wallet')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (err: any) {
+      if (err?.message?.includes('User closed modal')) {
+        console.log('Wallet connection cancelled by user')
+      } else {
+        console.error('Wallet connect failed:', err)
       }
-    } catch (err) {
-      console.error('Wallet connect failed:', err)
     } finally {
       setLoading(false)
     }

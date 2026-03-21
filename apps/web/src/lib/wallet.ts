@@ -33,31 +33,84 @@ export async function initWalletConnector() {
     [HederaChainId.Testnet] // chainId 296
   )
 
-  await dAppConnector.init({ logger: 'error' })
+  await dAppConnector.init({ logger: 'fatal' })
   return dAppConnector
 }
 
+interface ConnectWalletResult {
+  accountId: string;
+  evmAddress: string;
+  walletName: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  connector: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  session: any;
+}
+
 // Open the wallet selection modal
-export async function connectWallet() {
+export async function connectWallet(): Promise<ConnectWalletResult> {
   const connector = await initWalletConnector()
-  await connector.openModal()
 
-  // Wait briefly for session to settle if they just connected
-  await new Promise(resolve => setTimeout(resolve, 500))
+  // 1. If a session already exists, reuse it and don't open the modal!
+  const existingSessions = connector.walletConnectClient?.session.getAll()
+  if (existingSessions && existingSessions.length > 0) {
+    const session = existingSessions[0]
+    const accountId = session.namespaces.hedera?.accounts[0]?.split(':')[2]
+    if (accountId) {
+      const evmAddress = accountIdToEvmAddress(accountId)
+      const walletName = session.peer.metadata.name || 'WalletConnect'
+      return { accountId, evmAddress, walletName, connector, session }
+    }
+  }
 
-  const sessions = connector.walletConnectClient?.session.getAll()
-  if (!sessions?.length) throw new Error('No wallet session established')
+  // 2. Otherwise, wait for a new connection
+  return new Promise<ConnectWalletResult>(async (resolve, reject) => {
+    let checkInterval: NodeJS.Timeout
+    let isResolving = false
 
-  const session = sessions[0]
-  // Hedera account ID from session (format: "hedera:testnet:0.0.XXXXX")
-  const accountId = session.namespaces.hedera?.accounts[0]?.split(':')[2]
-  if (!accountId) throw new Error('No Hedera account in session')
+    const checkSession = (isFinalCheck = false) => {
+      const sessions = connector.walletConnectClient?.session.getAll()
+      if (sessions && sessions.length > 0) {
+        isResolving = true
+        clearInterval(checkInterval)
+        
+        const session = sessions[0]
+        const accountId = session.namespaces.hedera?.accounts[0]?.split(':')[2]
+        if (!accountId) {
+          reject(new Error('No Hedera account in session'))
+          return
+        }
+        
+        const evmAddress = accountIdToEvmAddress(accountId)
+        const walletName = session.peer.metadata.name || 'WalletConnect'
+        
+        resolve({ accountId, evmAddress, walletName, connector, session })
+      } else if (isFinalCheck && !isResolving) {
+        reject(new Error('No wallet session established. User closed modal.'))
+      }
+    }
 
-  // Derive EVM address from account ID for HSCS contract calls
-  const evmAddress = accountIdToEvmAddress(accountId)
-  const walletName = session.peer.metadata.name || 'WalletConnect'
+    // Subscribe to modal state to stop polling if closed
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const unsubscribe = connector.walletConnectModal.subscribeModal((state: any) => {
+      if (!state.open && !isResolving) {
+        clearInterval(checkInterval)
+        unsubscribe()
+        setTimeout(() => checkSession(true), 800)
+      }
+    })
 
-  return { accountId, evmAddress, walletName, connector, session }
+    // Poll every 500ms while the modal is open or connection is pending
+    checkInterval = setInterval(() => checkSession(false), 500)
+
+    try {
+      await connector.openModal()
+    } catch (err) {
+      clearInterval(checkInterval)
+      unsubscribe()
+      reject(err)
+    }
+  })
 }
 
 export async function disconnectWallet() {

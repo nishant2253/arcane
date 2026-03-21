@@ -37,6 +37,13 @@ export const useWalletStore = create<WalletState>()(
         isConnected: false, connector: null, hbarBalance: 0, walletName: null
       }),
     }),
-    { name: 'tradeagent-wallet' }
+    { 
+      name: 'tradeagent-wallet',
+      partialize: (state) => {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { connector, ...rest } = state;
+        return rest;
+      }
+    }
   )
 );

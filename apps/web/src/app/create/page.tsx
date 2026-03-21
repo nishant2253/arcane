@@ -120,7 +120,11 @@ function DeployButton({ msg }: { msg: Message }) {
 
       router.push(`/agents/${data.agentId}`);
     } catch (err: any) {
-      alert(`Deploy failed: ${err.message}`);
+      if (!err.message?.includes('User closed modal')) {
+        alert(`Deploy failed: ${err.message}`);
+      } else {
+        console.log('Wallet connection cancelled by user during deploy');
+      }
     } finally {
       setDeploying(false);
     }
