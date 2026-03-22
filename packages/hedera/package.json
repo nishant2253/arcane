@@ -13,6 +13,7 @@
     "@hashgraph/sdk": "^2.51.0",
     "@hashgraphonline/standards-agent-kit": "^0.2.166",
     "@hashgraphonline/standards-sdk": "^0.1.168",
+    "@hiero-did-sdk/registrar": "^0.1.8",
     "dotenv": "^16.4.7"
   },
   "devDependencies": {

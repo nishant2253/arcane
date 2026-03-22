@@ -96,13 +96,15 @@ export async function submitAgentDecision(
     timestamp: decision.timestamp,
   });
 
-  const tx = await new TopicMessageSubmitTransaction()
+  const tx = new TopicMessageSubmitTransaction()
     .setTopicId(TopicId.fromString(topicId))
     .setMessage(message)
     .setMaxTransactionFee(new Hbar(1))
-    .execute(client);
+    .freezeWith(client);
 
-  const receipt = await tx.getReceipt(client);
+  const response = await tx.execute(client);
+
+  const receipt = await response.getReceipt(client);
 
   // Note: consensus timestamp is available via Mirror Node query after submission.
   // The receipt confirms finality; approximate timestamp used here.

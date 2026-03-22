@@ -29,7 +29,7 @@ TradeAgent offers multiple ways to build an agent without needing to code. We wi
    - In the chat interface, use plain English to describe your trading strategy.
    - *Example Prompt:* `"Create a swing trading agent for HBAR/USDC using a 60-day EMA confirmation and set a 3% stop loss."`
 3. **Review the Configuration:** 
-   - The integrated Gemini 1.5 Flash AI will process your prompt and respond within seconds.
+   - The integrated Gemini 2.5 Flash AI will process your prompt and respond within seconds.
    - It will output a highly structured JSON `AgentConfig` (defining your strategy type, asset, timeframe, indicators, and risk limits) inside the chat bubble.
    - The UI will also display a **ConfigHash**—this is a unique cryptographic signature representing your exact strategy rules.
 
@@ -58,7 +58,7 @@ Your agent is now active and monitoring the markets. Here is what happens during
 1. **Price Fetching:** The agent pulls real-time, signed attestations from the **Pyth Oracle**.
 2. **Decision Making:** Gemini evaluates the latest indicators against your strategy rules to determine a `BUY`, `SELL`, or `HOLD` signal.
 3. **Cryptographic Proof FIRST:** Before any trade is executed, the decision and its reasoning are instantly written to the **Hedera Consensus Service (HCS)**. 
-   - You can click **View Proof** on your dashboard at any time. This will take you to **HashScan**, where you can see the immutable timestamp proving *exactly* when the decision was made. No data can ever be fabricated.
+   - You can click **View Proof** on your dashboard at any time. This will take you to **HashScan**, where you can see the immutable timestamp proving *exactly* when the decision was made. No data can ever be fabricated.  
 4. **DEX Execution:** If the signal is a `BUY` or `SELL`, the agent automatically routes the swap through **SaucerSwap** (Hedera's largest DEX).
 
 ---

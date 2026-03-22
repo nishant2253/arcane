@@ -68,3 +68,13 @@ This document tracks bugs encountered during the TradeAgent development lifecycl
 **Symptom:** Deep nested IDE type errors inside `agentRunner.ts` handling `executeTradeSignal`.
 **Cause:** The MockDEX pipeline returned more expansive properties (`txHash`, `slippageBps`, `fillPrice`) than the standard base LangGraph execution model, causing strict interface definitions to fail.
 **Resolution:** Utilized scoped `any` typecasting on execution responses and forced the LangChain tools array export shape to `any[]` to circumvent TypeScript's infinite instantiation recursion bug.
+
+### 14. HCS SDK `TopicMessageSubmitTransaction` Size Chunking Exception
+**Symptom:** The AI execution flow broke during HCS submission with `Error: transaction must have been frozen before calculating the hash will be stable, try calling freeze`.
+**Cause:** The Hedera JS native SDK attempted to dynamically calculate hash signatures for chunked messages but threw an exception because the transaction object was not officially frozen against target chain Node IDs before `.execute(client)` fired.
+**Resolution:** Explicitly chained `.freezeWith(client)` onto the `TopicMessageSubmitTransaction` builder. Modified the transaction receipt extraction logic to pull from the executed `TransactionResponse`, complying with Hedera SDK v2 structure.
+
+### 15. Hiero DID Registrar Missing Dependency in OpenConvAI
+**Symptom:** OpenConvAI `HCS-10/11` agent registration threw a timeout fallback followed by `Hiero registrar unavailable. Ensure @hiero-did-sdk/registrar is installed.`
+**Cause:** The Hedera `@hashgraphonline/standards-sdk` internally attempted to establish a Decentralized Identifier string for the AI Agent according to Hiero schema, but the underlying `@hiero-did-sdk/registrar` package was not explicitly defined in the parent workspace.
+**Resolution:** Executed `npm install -w packages/hedera @hiero-did-sdk/registrar` to fulfill the standard's sub-dependency requirement.
