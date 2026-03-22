@@ -442,4 +442,32 @@ router.put('/:agentId/pause', async (req: Request, res: Response) => {
   }
 });
 
+// ── POST /api/agents/:id/trigger ──────────────────────────────────
+// Added for Phase 7 Demo execution
+router.post("/:agentId/trigger", async (req, res) => {
+  if (process.env.NODE_ENV === "production") {
+    return res.status(403).json({ error: "Not available in production" });
+  }
+
+  try {
+    const agent = await prisma.agent.findUnique({
+      where: { id: req.params.agentId }
+    });
+    
+    if (!agent) return res.status(404).json({ error: "Agent not found" });
+
+    // Run cycle immediately (bypasses BullMQ cron)
+    const config = agent.config as Record<string, unknown>;
+    await runAgentCycle({ ...(config as any), agentId: agent.id }, agent.hcsTopicId, false);
+
+    res.json({
+      success: true,
+      message: "Agent cycle triggered",
+      hashscanUrl: `https://hashscan.io/testnet/topic/${agent.hcsTopicId}`,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

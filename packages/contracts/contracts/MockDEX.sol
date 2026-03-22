@@ -151,18 +151,18 @@ contract MockDEX {
         string memory hcsTopicId
     ) external returns (uint256 amountOut) {
         // Get quote and validate
-        (uint256 expectedOut, uint256 priceImpactBps, uint256 slippageBps) = getSwapQuote(direction, amountIn);
+        // Get quote and validate
+        uint256 priceImpactBps;
+        uint256 slippageBps;
+        (amountOut, priceImpactBps, slippageBps) = getSwapQuote(direction, amountIn);
         
-        require(expectedOut >= minAmountOut, string.concat(
-            "Slippage exceeded. Expected: ", toString(expectedOut), " Got min: ", toString(minAmountOut)
+        require(amountOut >= minAmountOut, string.concat(
+            "Slippage exceeded. Expected: ", toString(amountOut), " Got min: ", toString(minAmountOut)
         ));
         require(slippageBps <= MAX_SLIPPAGE_BPS, "Price impact > 1% - trade rejected for safety");
-        
-        amountOut = expectedOut;
 
         // Update simulated pool reserves (x*y=k)
-        bytes32 dirHash = keccak256(bytes(direction));
-        if (dirHash == keccak256(bytes("HBAR_TO_USDC"))) {
+        if (keccak256(bytes(direction)) == keccak256(bytes("HBAR_TO_USDC"))) {
             reserveHBAR += amountIn;
             reserveUSDC -= amountOut;
         } else {
@@ -172,11 +172,14 @@ contract MockDEX {
 
         // Get current HBAR price using Hedera Exchange Rate Precompile
         // This is HEDERA-EXCLUSIVE - not available on any other EVM chain
-        uint256 hbarPriceUsdCents = 0;
-        try IExchangeRate(EXCHANGE_RATE_PRECOMPILE).tinybarsToTinycents(100_000_000) returns (uint256 cents) {
-            hbarPriceUsdCents = cents; // USD cents per 1 HBAR
-        } catch {
-            hbarPriceUsdCents = 8; // Fallback: $0.08/HBAR
+        uint256 hbarPriceUsdCents = 8; // Fallback: $0.08/HBAR
+        {
+            (bool success, bytes memory result) = EXCHANGE_RATE_PRECOMPILE.call(
+                abi.encodeWithSelector(IExchangeRate.tinybarsToTinycents.selector, 100_000_000)
+            );
+            if (success && result.length > 0) {
+                hbarPriceUsdCents = abi.decode(result, (uint256));
+            }
         }
 
         // Record the swap WITH the HCS link - this is the key connection

@@ -77,4 +77,23 @@ Once your agent has been running successfully, its verifiable performance become
 
 ---
 
+## Phase 6: Live Testnet Execution (MockDEX Integration)
+
+For testing purposes on the Hedera Testnet (where real SaucerSwap liquidity pools do not exist), TradeAgent is wired to a natively deployed **MockDEX** smart contract. This provides a 1-to-1 operational simulation of the mainnet execution environment.
+
+1. **Manual Demo Trigger:** Instead of waiting for the BullMQ cron scheduler to hit its execution window, you can manually trigger an immediate cycle for demonstration purposes.
+   - Fire a `POST` request to `http://localhost:3001/api/agents/YOUR_AGENT_ID/trigger`
+2. **Execution Console Logs:** Watch your terminal (`apps/api npm run dev`). You will see an unbroken chain:
+   - `[Price]` oracle values fetched.
+   - `[Gemini]` reasoning out the signal (e.g., `BUY`).
+   - `[HCS]` Decision cryptographically sealed to the Hedera ledger.
+   - `[MockDEX]` Simulation AMM processing the token swap and checking slippage against the 1% maximum.
+   - `[HCS]` Execution result logged securely.
+3. **Validating the Audit Trail:**
+   - In the API response or on your Agent Dashboard, click the **HashScan Topic URL**.
+   - You will see the timestamped decision message logged securely. 
+   - Search the MockDEX transaction hash on HashScan, and view the embedded `hcsSequenceNum` in the `SwapExecuted` event, structurally proving the AI decision preceded the actual trade execution by only seconds.
+
+---
+
 **Welcome to the future of verifiable, decentralized algorithmic trading.**
