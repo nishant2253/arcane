@@ -9,7 +9,8 @@ This document tracks major feature enhancements and integrations for the TradeAg
 
 ### Key Features:
 - **WalletConnect v2:** Secure, standards-compliant connection to HashPack on Hedera Testnet.
-- **Session Persistence:** Signer state rehydrates automatically on page refresh via `useEffect` in `WalletConnect.tsx`.
+- **Session Persistence:** `rehydrateWallet()` restores sessions silently on page refresh — no modal pop-up.
+- **Race-Condition Fix:** `waitForSigner()` retries signer lookup up to 10× (100ms each) to handle async population.
 - **tUSDT Support:** Automatic token association detection and balance tracking via Mirror Node API.
 - **User-Pays Model:** Users sign and pay HBAR fees for all on-chain actions (deployments and MANUAL trades).
 
@@ -18,12 +19,9 @@ This document tracks major feature enhancements and integrations for the TradeAg
 ## 2. Native HSCS Calls via ContractExecuteTransaction
 **Status:** ✅ Complete (replaced ethers bridge)
 
-The original implementation used a custom ethers.js signer (`hashpackEthers.ts`) to bridge Hedera's `DAppSigner` into ethers' signing pipeline. This was incompatible because `DAppSigner` expects a native Hedera SDK `Transaction` object.
-
-**Current approach:**
-- All smart contract calls use `ContractExecuteTransaction` from `@hashgraph/sdk`
-- ABI encoding done via `ContractFunctionParameters` with typed setters (`.addString()`, `.addBytes32()`, etc.)
-- `ContractId.fromEvmAddress(0, 0, address)` used to target the `AgentRegistry` contract
+The original ethers.js signer bridge (`hashpackEthers.ts`) was removed. All smart contract calls now use:
+- `ContractExecuteTransaction` + `ContractFunctionParameters` from `@hashgraph/sdk`
+- `ContractId.fromEvmAddress(0, 0, address)` to target `AgentRegistry`
 - Gas limit: 800,000 | Max fee: 5 HBAR
 - Fully compatible with `freezeWithSigner(signer).executeWithSigner(signer)` pattern
 
@@ -32,80 +30,130 @@ The original implementation used a custom ethers.js signer (`hashpackEthers.ts`)
 ## 3. Non-Blocking finalize-deploy Endpoint
 **Status:** ✅ Complete
 
-The `POST /api/agents/finalize-deploy` endpoint was redesigned to respond instantly:
-
-**Order of operations:**
-1. Validate request params (synchronous, ~1ms)
-2. `prisma.agent.create()` — save agent to Supabase (~30ms)
-3. `scheduleAgentJob()` — register BullMQ cron (~10ms)
-4. `res.status(201).json(...)` — **respond to frontend immediately**
-5. `setImmediate(() => registerAgentHCS10(...))` — fire-and-forget HCS-10 (30–90s in background)
-6. On HCS-10 completion, `prisma.agent.update({ hcs10TopicId })` — patches DB record silently
-
-**Result:** Frontend redirects in ~100ms after last HashPack approval. HCS-10 runs in background without blocking the user.
+`POST /api/agents/finalize-deploy` responds in ~100ms:
+1. Validate request params (~1ms)
+2. Create dedicated agent trading account (AccountCreateTransaction + tUSDT association, ~3–5s)
+3. `prisma.agent.create()` — save agent (~30ms)
+4. `scheduleAgentJob()` — register BullMQ cron (~10ms)
+5. `res.status(201).json(...)` — **respond immediately with `agentAccountId`**
+6. `setImmediate(() => registerAgentHCS10(...))` — fire-and-forget HCS-10 (30–90s background)
 
 ---
 
 ## 4. AI Agent Proposal Card
 **Status:** ✅ Complete
 
-The `ConfigProposalCard` component in `create/page.tsx` now displays the full `AgentConfig` returned by Gemini 2.5 Flash:
-
-- Agent name and strategy type badge
-- Asset pair and trading timeframe
-- Technical indicators listed as chips (EMA, RSI, MACD, etc.)
-- Risk management section: Stop-Loss %, Take-Profit %, Max Position %
+`ConfigProposalCard` in `create/page.tsx` displays full Gemini-generated `AgentConfig`:
+- Agent name, strategy type badge, asset pair, timeframe
+- Technical indicators as chips (EMA, RSI, MACD)
+- Risk management: Stop-Loss %, Take-Profit %, Max Position %
 - ConfigHash preview (first 14 chars of keccak256 hash)
 - Deploy button scoped to this specific config version
 
 ---
 
-## 5. Agent Execution Modes
+## 5. Real Technical Indicator Computation
 **Status:** ✅ Complete
 
-| Mode | Who Signs | Who Pays | Use Case |
-|------|-----------|----------|----------|
-| **MANUAL** | User (HashPack popup) | User (HBAR) | Live demo, user accountability |
-| **AUTO** | Operator (backend) | Operator (HBAR) | Autonomous trading, hackathon demo |
+Before every Gemini AI decision, the backend now:
+- Fetches 80 hourly candles from Binance API (`/api/v3/klines?symbol=HBARUSDT&interval=1h`)
+- Computes `EMA(period)` using proper SMA seed + exponential smoothing
+- Computes `RSI(period)` using Wilder's smoothing method
+- Computes `MACD line` if configured
+- Passes computed values (e.g. `EMA_60: 0.08843`, `RSI_14: 52.3`, `price_vs_ma_pct: 1.43`) to Gemini
+
+Gemini is required to cite actual values in its reasoning. The prompt includes explicit decision rules per strategy type to prevent spurious HOLDs.
 
 ---
 
-## 6. Real-Time Dashboard
+## 6. Agent Wallet Architecture (True Agentic Trading)
 **Status:** ✅ Complete
 
-- Live HBAR / tUSDT balance updates via Hedera Mirror Node API
-- HCS decision logging per trade execution (BUY/SELL/HOLD + reasoning + confidence)
-- Per-trade slippage and fill price recorded in Postgres via Prisma
-- HashScan deep-links for each HCS message and swap transaction
+Each deployed agent gets its own dedicated Hedera ECDSA account — the core solution to the "agentic trading paradox":
+
+| Mode | Behaviour |
+|------|-----------|
+| **MANUAL SIGN** | User signs each trade via HashPack TradeApprovalModal. tUSDT lands in user's HashPack. |
+| **AUTO TRADE** | Agent account's ECDSA key signs autonomously. tUSDT lands in agent's own wallet. No per-trade user signing. |
+
+**How it works:**
+1. `finalize-deploy` generates a new ECDSA key pair, creates a Hedera account (`AccountCreateTransaction`), and associates the tUSDT token — all operator-paid, background
+2. `agentAccountId`, `agentAccountEvmAddress`, and `agentAccountPrivateKey` stored in DB
+3. Frontend shows **Step 4 "Fund Your Agent"** modal after deployment — user sends HBAR via one HashPack `TransferTransaction`
+4. `tradeExecutor.ts` AUTO mode uses `agentAccountPrivateKey` to build an `ethers.Wallet` — MockDEX calls run from agent account
+5. Agent Portfolio card on `/agents/[id]` shows live HBAR + tUSDT balances from Mirror Node, initial budget, and P&L %
+6. "Withdraw All" button triggers operator-signed `TransferTransaction` returning funds to owner (no extra HashPack needed)
+
+**Total user signatures for full lifecycle: 4 (3 deploy + 1 fund) + 1 optional withdrawal**
 
 ---
 
-## 7. MockDEX Integration (Testnet)
+## 7. Transaction Audit Log
 **Status:** ✅ Complete
 
-On Hedera Testnet, SaucerSwap does not have real liquidity pools. `MockDEX.sol` provides a native AMM (x*y=k) that:
+New `Transaction` Prisma model and `/api/transactions` endpoints record every HashPack-approved transaction:
+
+| Type | Trigger |
+|------|---------|
+| `DEPLOY_HFS` | HFS FileCreate during deployment |
+| `DEPLOY_HCS` | HCS TopicCreate during deployment |
+| `DEPLOY_HSCS` | ContractExecuteTransaction during deployment |
+| `AGENT_FUND` | Fund Agent TransferTransaction |
+| `TRADE_SWAP` | ManualTradeApprovalModal swap confirmed |
+
+Accessible at `/wallet` — shows type icon, agent name, truncated Tx ID (copy button), status, relative timestamp, and HashScan deep-link.
+
+---
+
+## 8. Run Trade Button + Test Run
+**Status:** ✅ Complete
+
+Agent detail page (`/agents/[id]`) now has:
+- **Run Trade** — triggers full AI cycle + HCS log; if BUY/SELL in MANUAL mode, shows `TradeApprovalModal` for user to sign the swap. **Disabled in AUTO mode** (agent trades automatically via BullMQ cron).
+- **Test Run · no swap** — runs full AI cycle + HCS log but skips MockDEX call. Safe to use without spending HBAR. Formerly called "Dry Run".
+
+---
+
+## 9. Rich HCS Execution History
+**Status:** ✅ Complete
+
+HCS Execution History panel on agent dashboard now shows:
+- **Decision entries** (BUY/SELL/HOLD badges): confidence %, price, AI reasoning, and indicator value chips (EMA, RSI, price_vs_ma_pct)
+- **Execution entries** (green "SWAP DONE" badge): direction arrow (HBAR → tUSDT), amounts in/out, slippage %, clickable tx hash → HashScan
+- Timestamps as relative time ("3m ago", "1h ago") instead of raw epoch strings
+- All data sourced live from Hedera Mirror Node (aBFT-guaranteed)
+
+---
+
+## 10. MockDEX Integration (Testnet)
+**Status:** ✅ Complete
+
+`MockDEX.sol` provides a native AMM (x*y=k) for testnet:
 - Uses Hedera Exchange Rate Precompile (0x168) for HBAR/USD pricing
 - Uses HTS Precompile (0x167) for token transfers
-- Embeds the HCS sequence number in `SwapExecuted` events to cryptographically link AI decision to trade execution
+- `sellHBARforUSDT(agentId, minOut, hcsSeq, topicId)` — caller sends HBAR as `msg.value`
+- `buyHBARwithUSDT(agentId, usdtIn, minHBAROut, hcsSeq, topicId)` — pulls tUSDT via HTS allowance
+- Embeds HCS sequence number in `SwapExecuted` events — cryptographically links AI decision to trade
 - Enforces 1% max slippage on all swaps
 
 ---
 
-## 8. HCS-10 OpenConvAI Registration
+## 11. HCS-10 OpenConvAI Registration
 **Status:** ✅ Complete (background)
 
-Each deployed agent is registered into the Hedera HCS-10 OpenConvAI standard:
-- Creates an inbound topic and outbound topic on HCS
-- Inscribes the agent's profile JSON (name, bio, capabilities) via the inscription SDK
-- Compatible with AI-to-AI interoperability on the Hedera ecosystem
-- Runs asynchronously — does not delay the user's deployment flow
+Each deployed agent is registered in the Hedera HCS-10 OpenConvAI standard:
+- Creates inbound + outbound topics on HCS
+- Inscribes agent profile JSON (name, bio, capabilities)
+- Compatible with AI-to-AI interoperability on Hedera
+- Runs asynchronously in `setImmediate()` — does not delay the user's deployment flow
 
 ---
 
 ## Upcoming / Planned
 
-- [ ] Agent settings page: change execution mode, adjust risk params, pause/resume
-- [ ] Portfolio dashboard: aggregate PnL across all agents
+- [ ] Mainnet deployment: replace MockDEX with live SaucerSwap + HAK plugin
+- [ ] Agent settings page: change risk params, adjust timeframe, pause/resume
+- [ ] Portfolio dashboard: aggregate P&L across all agents
 - [ ] Marketplace buyer flow: atomic HTS NFT swap with HBAR
 - [ ] Notification system: alert user when MANUAL trade approval is pending
-- [ ] MainNet deployment: replace MockDEX with live SaucerSwap integration
+- [ ] Encrypt `agentAccountPrivateKey` at rest (AES-256 with operator master key)

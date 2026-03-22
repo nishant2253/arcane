@@ -722,9 +722,10 @@ router.post('/:agentId/withdraw', async (req: Request, res: Response) => {
     const feeReserve = BigInt(5_000_000); // 0.05 HBAR
     if (balanceTinybars > feeReserve) {
       const withdrawAmount = balanceTinybars - feeReserve;
+      const withdrawAmountStr = withdrawAmount.toString();
       const hbarTx = await new TransferTransaction()
-        .addHbarTransfer(agentAcctId, HederaHbar.fromTinybars(-withdrawAmount))
-        .addHbarTransfer(ownerAcctId, HederaHbar.fromTinybars(withdrawAmount))
+        .addHbarTransfer(agentAcctId, HederaHbar.fromTinybars(`-${withdrawAmountStr}`))
+        .addHbarTransfer(ownerAcctId, HederaHbar.fromTinybars(withdrawAmountStr))
         .freezeWith(client)
         .sign(agentKey);
       const hbarResponse = await hbarTx.execute(client);

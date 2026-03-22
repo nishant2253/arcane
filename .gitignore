@@ -52,3 +52,14 @@ dump.rdb
 
 # Prisma
 prisma/*.db
+
+# Temporary / planning files
+temp_*.txt
+blueprints_combined.txt
+*_Plan.pdf
+*_Guide.pdf
+*_Blueprint_*.pdf
+*_Implementation_*.pdf
+
+# Cursor AI assets
+.cursor/

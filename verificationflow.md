@@ -19,7 +19,7 @@ cd apps/api && npm run dev
 cd apps/web && npm run dev
 ```
 
-HashPack wallet must be connected to **Hedera Testnet** with at least **1 HBAR** for fees.
+HashPack wallet must be connected to **Hedera Testnet** with at least **2 HBAR** (1 for fees, 1 for funding agent).
 
 ---
 
@@ -39,7 +39,7 @@ Expected: tUSDT association prompt fires automatically on first connect (~0.001 
 
 1. Navigate to `/create` (AI Builder)
 2. Type a strategy in plain English, e.g.:
-   > `"Swing trader for HBAR/USDC, 60-day EMA with RSI confirmation, 3% stop loss, 4h timeframe"`
+   > `"Mean reversion bot for HBAR/USDC, RSI(14) with 30/70 oversold/overbought levels, 4h timeframe"`
 3. Press **Enter** or click the send button
 4. Wait ~3–5 seconds for Gemini 2.5 Flash to respond
 
@@ -49,6 +49,8 @@ Expected: tUSDT association prompt fires automatically on first connect (~0.001 
 - Indicators (EMA/RSI/MACD chips)
 - Risk Management: Stop-Loss %, Take-Profit %, Max Position %
 - ConfigHash (first 14 chars, e.g., `0x2ba66fa1c68e…`)
+
+> **Tip for demo:** Use `MEAN_REVERT` strategy. With current HBAR market conditions (RSI ~18, deeply oversold), a MEAN_REVERT agent immediately generates a BUY signal instead of HOLD.
 
 ---
 
@@ -65,152 +67,155 @@ Click **Deploy Agent on Hedera** in the proposal card. Three HashPack popups wil
 Approve all three. The deploying modal will show progress steps.
 
 **After all 3 approvals:**
-- Backend `finalize-deploy` runs instantly (DB save + BullMQ in ~50ms)
-- Frontend redirects immediately to `/agents/[agentId]`
-- HCS-10 OpenConvAI registration runs silently in the background (~60s, does not block you)
-- All 3 deployment transactions are saved to the **Transaction Audit Log** (visible in `/wallet`)
+- Backend creates a dedicated **agent trading account** (ECDSA, EVM-compatible) — operator pays ~0.1 HBAR seed
+- Agent account is automatically associated with tUSDT token
+- DB save + BullMQ scheduling runs instantly (~50ms)
+- HCS-10 OpenConvAI registration runs silently in background (~60s)
+- All 3 deployment transactions saved to the Transaction Audit Log (`/wallet`)
 
 ---
 
-## Step 4 — Verify on HashScan (Do This Now)
+## Step 4 — Fund Your Agent (1 HashPack Signature — One Time Only)
 
-After redirect to the agent dashboard, find the HashScan links:
+After deployment, the **Fund Your Agent** modal appears automatically:
 
-### 4a. HCS Audit Topic
+1. Choose trading budget (default 20 HBAR, or type a custom amount)
+2. Click **Fund Agent** → HashPack opens for a simple HBAR transfer
+3. Approve → your HBAR is sent to the agent's dedicated account
+4. Click "Skip for now" if you only want to test MANUAL mode
+
+**Why this matters:** After funding, the agent can trade **fully autonomously** in AUTO mode using its own ECDSA key — no per-trade signing required. This is the core "agentic trading" capability.
+
+---
+
+## Step 5 — Verify on HashScan
+
+After redirect to the agent dashboard, verify all Hedera IDs are visible:
+
+### 5a. HCS Audit Topic
 ```
 https://hashscan.io/testnet/topic/[your-hcs-topic-id]
 ```
 - Should exist with 0 messages initially
-- This is your agent's permanent tamper-proof audit trail
+- Every AI decision + execution result will appear here
 
-### 4b. HFS Config File
+### 5b. HFS Config File
 ```
 https://hashscan.io/testnet/file/[your-hfs-file-id]
 ```
 - Contains your full AgentConfig JSON stored on-chain
 
-### 4c. AgentRegistry Contract
+### 5c. AgentRegistry Contract
 ```
 https://hashscan.io/testnet/contract/0.0.8316308
 ```
-- Search for your agent ID in contract state
 - Your `configHash`, `hcsTopicId`, `hfsConfigId` are all on-chain
 
-### 4d. Your Account
-```
-https://hashscan.io/testnet/account/0.0.8321325
-```
-- Should show the 3 transactions from deployment deducted from your balance
+### 5d. Agent Dedicated Account
+- Visible in the **Agent Portfolio** card on the agent dashboard
+- Click the account ID to see it on HashScan
 
 ---
 
-## Step 5 — Run a Trade Cycle (No curl needed)
+## Step 6 — Run a Trade Cycle
 
 From the agent dashboard at `/agents/[agentId]`:
 
-### 5a. Choose execution mode first
+### Execution Mode Reference
 
-| Mode | Behaviour |
-|------|-----------|
-| **MANUAL SIGN** | AI runs, logs to HCS, then a HashPack approval modal appears for each BUY/SELL — trade executes **in your wallet** and tUSDT appears in HashPack |
-| **AUTO TRADE** | Backend operator executes the swap automatically on BullMQ schedule — operator's wallet receives the output, not yours. "Run Trade" button is disabled in this mode |
+| Mode | Behaviour | Signs | tUSDT goes to |
+|------|-----------|-------|---------------|
+| **MANUAL SIGN** | AI cycle → HCS log → TradeApprovalModal → user approves → swap | User (HashPack, per trade) | User's HashPack wallet |
+| **AUTO TRADE** | BullMQ cron → AI cycle → HCS log → agent account signs → swap | Agent account key (no user needed) | Agent's dedicated account |
+| **Test Run · no swap** | AI cycle + HCS log, swap skipped | None | — |
 
-> **To see tUSDT arrive in your HashPack → use MANUAL SIGN mode.**
+> **To see tUSDT in your HashPack wallet → use MANUAL SIGN mode.**
+> **For fully autonomous trading → use AUTO TRADE mode** (requires funding in Step 4).
 
-### 5b. Trigger a cycle from the frontend
+### Trigger a cycle manually
 
-In **MANUAL SIGN** mode:
+1. Click **Run Trade** (disabled in AUTO mode — cron runs automatically)
+2. Backend fetches live HBAR price + computes EMA/RSI from Binance 1h candles
+3. Gemini 2.5 Flash generates BUY/SELL/HOLD citing actual indicator values
+4. HCS logs the decision with aBFT timestamp (before any swap)
+5. If BUY or SELL in MANUAL mode → **Trade Approval Modal** appears → sign in HashPack
+6. tUSDT balance updates in the top nav within ~5s
 
-1. Click **Run Trade** on the agent dashboard
-2. Backend fetches live HBAR price + computes EMA/RSI from recent price history (Binance 1h candles)
-3. Gemini 2.5 Flash generates a BUY/SELL/HOLD with real indicator values in the reasoning
-4. HCS logs the decision **before** any swap (aBFT timestamp sealed)
-5. If BUY or SELL → **Trade Approval Modal** appears:
-   - Shows signal, amount, slippage estimate, AI confidence
-   - Click **Approve** → HashPack popup → sign → HBAR swaps for tUSDT (or vice versa)
-   - tUSDT balance updates in the top nav within ~5s
-   - A `TRADE_SWAP` entry appears in the Transaction Audit Log with a HashScan link
-
-> **"Test Run · no swap"** runs the full AI cycle and logs to HCS but skips the swap — useful for testing without spending HBAR.
-
-**Watch the API terminal logs. You should see:**
-
+**Expected backend logs:**
 ```
 [AgentRunner] Step 2b: Computing technical indicators...
 [AgentRunner] Indicators: {"price":0.0897,"EMA_60":0.08843,"RSI_14":52.3,"price_vs_ma_pct":1.43}
 
-[AgentRunner] Step 3: Generating AI trading decision...
-[AgentRunner] Decision: BUY (confidence: 72%) — Price $0.0897 is 1.43% above EMA_60 0.08843 with RSI 52.3 in neutral zone, trend-following BUY signal confirmed.
+[AgentRunner] Decision: BUY (confidence: 72%) — Price $0.0897 is 1.43% above EMA_60...
 
 [HCS] ■ Decision logged BEFORE trade
 [HCS] Sequence: #1
-[HCS] Verify: https://hashscan.io/testnet/topic/0.0.8328694
+[MockDEX] Using wallet: 0x... (agent account)
+[MockDEX] ■ Swap confirmed! TxHash: 0x...
+[HCS] ■ Execution result logged — audit trail complete
 ```
-
-If signal is HOLD, no modal appears — HCS still logs it (correct behavior).
 
 ---
 
-## Step 6 — Verify the Proof Chain on HashScan
+## Step 7 — Verify the Proof Chain on HashScan
 
 This is the **core demo moment** for judges.
 
 1. Go to `https://hashscan.io/testnet/topic/[your-hcs-topic-id]`
 2. You should see **2 messages** per completed trade:
-   - **Message #N** — BUY/SELL decision with aBFT timestamp `T`
-     - Contains: signal, confidence, price, computed EMA/RSI values, reasoning
-   - **Message #N+1** — Execution result with timestamp `T+4s`
-     - Contains: direction (HBAR_TO_USDC), amountIn, amountOut, slippage, TxHash
-3. Click message #1 → expand the base64 content → full AI reasoning JSON
-4. Take the `txHash` → search it on HashScan
+   - **Message #N** — BUY/SELL decision: signal, confidence, price, EMA/RSI values, reasoning
+   - **Message #N+1** — Execution result: direction, amountIn, amountOut, slippage, TxHash
+3. Click message #1 → expand base64 content → full AI reasoning JSON
+4. Take the `txHash` → search on HashScan
 5. In the `SwapExecuted` event, find `hcsSequenceNum = "1"` embedded on-chain
 
-**This proves**: the AI decided at `T`, the swap happened at `T+4s` — decision ALWAYS precedes trade, sealed by aBFT consensus.
+**This proves:** The AI decided at timestamp `T`, the swap happened at `T+4s` — decision ALWAYS precedes trade, sealed by aBFT consensus.
 
 ---
 
-## Step 7 — HCS Execution History (Agent Dashboard)
+## Step 8 — HCS Execution History (Agent Dashboard)
 
-On the agent page, the **HCS Execution History** panel shows:
+The **HCS Execution History** panel on the agent page shows:
 
-- **Decision entries** (BUY/SELL/HOLD badges): confidence %, price, reasoning, and indicator chips (EMA value, RSI value, price_vs_ma_pct)
-- **Execution entries** (green "SWAP DONE" badge): direction arrow (HBAR → tUSDT), amounts in/out, slippage %, and a clickable truncated tx hash → HashScan
-- Timestamps shown as relative time ("3m ago", "1h ago")
-- All data sourced live from **Hedera Mirror Node** — aBFT-guaranteed, tamper-proof
+- **Decision entries** (BUY/SELL/HOLD badges): confidence %, price, reasoning, indicator chips (EMA value, RSI value, price_vs_ma_pct)
+- **Execution entries** (green "SWAP DONE" badge): direction arrow (HBAR → tUSDT), amounts in/out, slippage %, clickable tx hash → HashScan
+- **Timestamps** shown as relative time ("3m ago", "1h ago")
+- All data sourced live from Hedera Mirror Node — aBFT-guaranteed, tamper-proof
 
 ---
 
-## Step 8 — Transaction Audit Log (Wallet Page)
+## Step 9 — Agent Portfolio (AUTO mode)
+
+When the agent is in **AUTO TRADE mode** with a funded account, the **Agent Portfolio** card shows:
+
+| Field | Description |
+|-------|-------------|
+| HBAR Balance | Live from Mirror Node — decreases as SELL trades execute |
+| tUSDT Balance | Live from Mirror Node — increases as SELL trades execute |
+| Initial Budget | HBAR funded in Step 4 |
+| P&L % | (current HBAR − initial budget) / initial budget |
+
+**Withdraw All** button: operator-signed transfer returns remaining HBAR + tUSDT to your account — no HashPack signature needed.
+
+---
+
+## Step 10 — Transaction Audit Log (Wallet Page)
 
 Navigate to `/wallet`. Below the live HCS Signal Feed:
 
-**Transaction Audit Log** shows every HashPack-approved transaction:
+**Transaction Audit Log** shows every HashPack-approved transaction with HashScan links:
 
-| Column | Description |
-|--------|-------------|
-| Type | Icon + label: DEPLOY_HFS · DEPLOY_HCS · DEPLOY_HSCS · TRADE_SWAP · TOKEN_ASSOCIATE |
-| Agent | Agent name the tx belongs to |
-| Tx ID | First 10 + last 6 chars, click to copy |
-| Status | SUCCESS / PENDING |
-| Time | Relative timestamp |
-| HashScan | Direct link to hashscan.io/testnet/transaction/... |
-
-All three deployment transactions + every approved trade will appear here automatically.
+| Type | When it appears |
+|------|-----------------|
+| DEPLOY_HFS | After TX1 approval |
+| DEPLOY_HCS | After TX2 approval |
+| DEPLOY_HSCS | After TX3 approval |
+| AGENT_FUND | After Fund Agent step |
+| TRADE_SWAP | After ManualTradeApproval swap confirms |
 
 ---
 
-## Step 9 — Execution Modes Reference
-
-| Mode | Who triggers | Who pays | Trade appears in |
-|------|-------------|----------|-----------------|
-| MANUAL + Run Trade | You (button click) | Your wallet via HashPack | Your HashPack balance |
-| MANUAL + BullMQ cron | Scheduler (auto) | Your wallet via HashPack modal | Your HashPack balance |
-| AUTO + BullMQ cron | Scheduler (auto) | Operator backend | Operator wallet (not visible to you) |
-| Test Run · no swap | You (button click) | No swap fee | HCS log only |
-
----
-
-## Step 10 — Marketplace Listing (Optional)
+## Step 11 — Marketplace Listing (Optional)
 
 Once your agent has 7+ executions logged to HCS:
 
@@ -230,19 +235,25 @@ Once your agent has 7+ executions logged to HCS:
 | HFS FileCreate | ✅ Working | User signs, user pays ~0.05 HBAR |
 | HCS TopicCreate | ✅ Working | User signs, user pays ~0.11 HBAR |
 | HSCS registerAgent | ✅ Working | ContractExecuteTransaction, 800k gas |
+| Agent account creation | ✅ Working | ECDSA account created per agent, tUSDT auto-associated |
+| Fund Agent modal | ✅ Working | TransferTransaction via HashPack (1 sig, one-time) |
 | finalize-deploy | ✅ Working | DB + BullMQ instant (~50ms response) |
-| HCS-10 registration | ✅ Working | Background (fire-and-forget, ~60s) |
-| Agent page redirect | ✅ Working | Instant after TX3 approval |
+| HCS-10 registration | ✅ Working | Background fire-and-forget (~60s) |
+| Agent page redirect | ✅ Working | Instant after TX3 + fund step |
 | EMA/RSI computation | ✅ Working | Fetches 80 Binance 1h candles, computes live |
 | Real BUY/SELL signals | ✅ Working | Gemini receives actual indicator values |
-| Run Trade button | ✅ Working | Frontend button triggers full cycle + modal |
+| Run Trade button | ✅ Working | Disabled in AUTO mode; triggers full cycle in MANUAL |
 | Test Run (no swap) | ✅ Working | HCS log only, no MockDEX call |
-| TradeApprovalModal | ✅ Working | HashPack swap, tUSDT appears in wallet |
-| TRADE_SWAP audit log | ✅ Working | Saved to Transaction model + visible in /wallet |
-| Transaction Audit Log | ✅ Working | /wallet shows all HashPack-approved txs |
-| HCS history (SWAP DONE) | ✅ Working | Execution result entries with tx hash link |
-| Wallet rehydration | ✅ Working | Silent reconnect on page refresh |
-| BullMQ scheduling | ✅ Working | Cron based on timeframe |
+| TradeApprovalModal | ✅ Working | HashPack swap, tUSDT lands in user's wallet |
+| AUTO mode agent trading | ✅ Working | Agent account key signs MockDEX calls autonomously |
+| Agent Portfolio card | ✅ Working | Live HBAR + tUSDT balance, P&L %, Withdraw All |
+| Withdraw All | ✅ Working | Operator-signed transfer back to owner, no extra signing |
+| TRADE_SWAP audit log | ✅ Working | Saved to Transaction model, visible in /wallet |
+| Transaction Audit Log | ✅ Working | /wallet shows all HashPack-approved txs with HashScan links |
+| HCS history SWAP DONE | ✅ Working | Execution result entries with tx hash, amounts, slippage |
+| Wallet rehydration | ✅ Working | Silent reconnect on page refresh, first-click connect |
+| BullMQ scheduling | ✅ Working | Cron based on agent timeframe |
+| MockDEX ABI | ✅ Fixed | Uses correct functions + direction strings matching Solidity |
 
 ---
 
@@ -252,10 +263,12 @@ Once your agent has 7+ executions logged to HCS:
 |-------|-----|
 | `INSUFFICIENT_GAS` on TX3 | Gas already set to 800,000 — should not occur |
 | `User rejected` | User clicked Reject in HashPack — retry deploy |
-| Stuck on "Finalizing..." | Backend finalize-deploy is working (~50ms) — check API is running |
-| Agent page 404 after redirect | Check that DB insert succeeded in API logs |
-| HCS topic shows 0 messages | Normal — click "Run Trade" to trigger first cycle |
-| tUSDT not appearing in HashPack | Make sure agent is in **MANUAL SIGN** mode, not AUTO TRADE |
+| Stuck on "Finalizing..." | Check API terminal — should resolve in <5s |
+| Agent page 404 after redirect | Check DB insert succeeded in API logs |
+| HCS topic shows 0 messages | Normal — trigger first cycle with Run Trade |
+| tUSDT not appearing in HashPack | Must use MANUAL SIGN mode; check for BUY/SELL signal (not HOLD) |
 | Agent always returns HOLD | Check API logs for "Computed indicators" — Binance fetch must succeed |
-| "Run Trade" button grayed out | Agent is in AUTO mode (intentional) or agent is Paused |
+| Run Trade button grayed out | Agent is in AUTO mode (intentional) or Paused |
 | Wallet needs 2 clicks to connect | Fixed — rehydration now works on first click |
+| `TypeError: bigint not assignable` | Fixed in withdraw endpoint — `Hbar.fromTinybars` now receives string |
+| MockDEX swap fails silently | Fixed — ABI now uses `sellHBARforUSDT`/`buyHBARwithUSDT` matching Solidity |
