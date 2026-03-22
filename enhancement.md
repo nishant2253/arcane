@@ -34,8 +34,10 @@ To provide verifiable demonstrations of TradeAgent during the APEX hackathon wit
 5. **Agent Runner Wiring (Phase 5)**: Interconnected the entire agent execution cycle (`agentRunner.ts`). 
    - **Chronology**: Pyth Oracle fetches exact pricing → Gemini 1.5 Flash reasons over indicators and issues a `BUY/SELL` signal → Decision is cryptographically timestamped on **HCS** → `tradeExecutor` reads the HCS ID and fires the corresponding DEX transaction → Trade completion status is re-submitted back into the **HCS** log.
    - Scheduled this process securely into BullMQ via `agentWorker.ts` for automated interval execution.
+6. **Native Token Transfers (Phase 8)**: Re-engineered `MockDEX.sol` to perform genuine testnet token transfers mimicking fully active AMM liquidity.
+   - Utilizes the Hedera HTS Precompile (`0x167`) to physically emit `tUSDT` to user wallets during `sellHBARforUSDT`.
+   - Reversely handles `.call{value: hbarOut}` transfers from the DEX contract back to the user upon calling `buyHBARwithUSDT`, enforcing strict wallet balance tracking alongside the HCS sequencing records.
 
 ## Next Steps / Future Enhancements
-- **Contract Tests (Phase 6)**: Write Hardhat verification tests bridging HCS and Smart Contract linkages.
 - **Smart Contract Linking**: Use the WalletConnect `sign-client` to prompt the user to sign the actual `ContractCreateTransaction` directly from their HashPack wallet, rather than relying on a backend operator account.
 - **Atomic Swaps**: Implement Phase 3 logic where users can purchase Strategy NFTs via the HashPack extension, triggering simultaneous HBAR transfer and NFT delivery.

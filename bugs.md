@@ -78,3 +78,8 @@ This document tracks bugs encountered during the TradeAgent development lifecycl
 **Symptom:** OpenConvAI `HCS-10/11` agent registration threw a timeout fallback followed by `Hiero registrar unavailable. Ensure @hiero-did-sdk/registrar is installed.`
 **Cause:** The Hedera `@hashgraphonline/standards-sdk` internally attempted to establish a Decentralized Identifier string for the AI Agent according to Hiero schema, but the underlying `@hiero-did-sdk/registrar` package was not explicitly defined in the parent workspace.
 **Resolution:** Executed `npm install -w packages/hedera @hiero-did-sdk/registrar` to fulfill the standard's sub-dependency requirement.
+
+### 16. Hardhat Test HBAR Native Transfer Revert
+**Symptom:** The MockDEX test suite threw a `VM Exception while processing transaction: reverted with reason string 'Insufficient DEX HBAR balance'` during the `USDT_TO_HBAR` native transfer execution test.
+**Cause:** The simulated 100 USDT pool swap legitimately quoted an output of ~1176 HBAR based on default liquidity ratios, but the Hardhat test suite only initialized the test contract balance with 1000 HBAR, causing the native Ethereum `.call{value: }` to rightfully fail for insufficient funds.
+**Resolution:** Modified the test suite explicitly to seed the contract (via `owner.sendTransaction`) with enough native HBAR (2000 HBAR) to cover the mathematical yield of the 100 USDT `buyHBARwithUSDT` execution.
