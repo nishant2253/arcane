@@ -32,6 +32,14 @@ model Agent {
   contractTxId    String?     // Hedera tx ID of HSCS registration
   hcs10TopicId    String?     // OpenConvAI inbound topic for inter-agent messaging
 
+  // Agent dedicated trading wallet (autonomous execution)
+  // Created by operator during finalize-deploy; funded once by user via HashPack.
+  // The backend holds the ECDSA key so the agent can trade without per-trade signing.
+  agentAccountId         String?   // Hedera account ID "0.0.XXXXX"
+  agentAccountEvmAddress String?   // hex EVM address for MockDEX calls
+  agentAccountPrivateKey String?   // ECDSA hex key — store encrypted in prod
+  tradingBudgetHbar      Float     @default(0)   // HBAR funded by user
+
   // Status
   active          Boolean     @default(true)
   executionMode   String      @default("MANUAL") // AUTO | MANUAL

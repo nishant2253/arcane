@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { 
   SendIcon, BotIcon, UserIcon, ZapIcon, 
-  SparklesIcon, Loader2 
+  SparklesIcon, Loader2, WalletIcon, ArrowRightIcon, CheckCircle2Icon,
 } from 'lucide-react';
 import { 
   TopicCreateTransaction, 
@@ -14,7 +14,9 @@ import {
   ContractExecuteTransaction,
   ContractFunctionParameters,
   ContractId,
-  Hbar 
+  Hbar,
+  TransferTransaction,
+  AccountId,
 } from '@hashgraph/sdk';
 
 import { useAgentStore, AgentConfig } from '@/stores/agentStore';
@@ -67,6 +69,161 @@ function DeployingModal({ step }: { step: string }) {
            ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+interface FundAgentModalProps {
+  agentId:        string;
+  agentAccountId: string;
+  signer:         any;
+  accountId:      string;
+  onComplete:     () => void;
+}
+
+function FundAgentModal({ agentId, agentAccountId, signer, accountId, onComplete }: FundAgentModalProps) {
+  const [budget,   setBudget]   = useState('20');
+  const [funding,  setFunding]  = useState(false);
+  const [funded,   setFunded]   = useState(false);
+  const [txId,     setTxId]     = useState<string | null>(null);
+  const [error,    setError]    = useState<string | null>(null);
+
+  async function fundAgent() {
+    const hbar = parseFloat(budget);
+    if (!hbar || hbar <= 0) return;
+    setFunding(true);
+    setError(null);
+    try {
+      const tinybars = BigInt(Math.round(hbar * 1e8));
+      // Build a simple HBAR transfer from user → agentAccountId
+      const transferTx = await new TransferTransaction()
+        .addHbarTransfer(AccountId.fromString(accountId), Hbar.fromTinybars(-tinybars))
+        .addHbarTransfer(AccountId.fromString(agentAccountId), Hbar.fromTinybars(tinybars))
+        .setTransactionMemo(`Fund TradeAgent:${agentId}`)
+        .setMaxTransactionFee(new Hbar(2))
+        .freezeWithSigner(signer);
+
+      const response = await transferTx.executeWithSigner(signer);
+      const receipt  = await response.getReceiptWithSigner(signer);
+      const txIdStr  = response.transactionId.toString();
+      setTxId(txIdStr);
+
+      // Notify backend
+      await fetch(`${API_URL}/api/agents/${agentId}/fund`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ budgetHbar: hbar }),
+      });
+
+      // Record in audit log
+      recordTx({ ownerId: accountId, agentId, type: 'AGENT_FUND', txId: txIdStr,
+        details: { agentName: 'Agent Wallet', agentAccountId, budgetHbar: hbar } });
+
+      setFunded(true);
+      setTimeout(() => onComplete(), 2500);
+    } catch (err: any) {
+      if (err?.message?.includes('rejected') || err?.message?.includes('User rejected')) {
+        setError('Transaction cancelled.');
+      } else {
+        setError(err?.message ?? 'Fund transaction failed');
+      }
+    } finally {
+      setFunding(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.9, y: 16 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        className="bg-[#0D1B2A] border border-[#00A9BA]/30 rounded-3xl p-8 max-w-md w-full shadow-[0_0_60px_rgba(0,169,186,0.15)]"
+      >
+        {funded ? (
+          <div className="text-center py-4">
+            <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+              <CheckCircle2Icon size={32} className="text-green-400" />
+            </div>
+            <p className="text-white font-bold text-lg mb-1">Agent Funded!</p>
+            <p className="text-gray-400 text-sm">Redirecting to your agent dashboard…</p>
+            {txId && (
+              <a href={`https://hashscan.io/${NETWORK}/transaction/${txId}`} target="_blank" rel="noopener noreferrer"
+                className="mt-3 inline-flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded-lg"
+                style={{ background: 'rgba(0,169,186,0.12)', color: '#00A9BA', border: '1px solid rgba(0,169,186,0.25)' }}>
+                View on HashScan ↗
+              </a>
+            )}
+          </div>
+        ) : (
+          <>
+            {/* Header */}
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-[#00A9BA]/10">
+                <WalletIcon size={24} style={{ color: '#00A9BA' }} />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-white">Step 4: Fund Your Agent</h3>
+                <p className="text-xs text-gray-400">One-time · Agent trades autonomously after this</p>
+              </div>
+            </div>
+
+            {/* Explanation */}
+            <div className="bg-black/30 rounded-xl p-4 mb-5 border border-white/5">
+              <p className="text-xs text-gray-300 leading-relaxed mb-3">
+                Your agent has its own dedicated Hedera account. Fund it with HBAR and it will trade
+                <span className="text-[#00A9BA]"> fully autonomously</span> — no per-trade signing needed.
+                Profits accumulate in the agent wallet; withdraw anytime.
+              </p>
+              <div className="flex items-center gap-2 text-[10px] font-mono" style={{ color: '#475569' }}>
+                <span>Agent wallet:</span>
+                <span className="text-[#00A9BA]">{agentAccountId}</span>
+              </div>
+            </div>
+
+            {/* Budget input */}
+            <div className="mb-5">
+              <label className="text-xs text-gray-400 mb-2 block">Trading Budget (HBAR)</label>
+              <div className="flex gap-2">
+                {['10', '20', '50'].map(v => (
+                  <button key={v} onClick={() => setBudget(v)}
+                    className="flex-1 py-2 rounded-xl text-sm font-semibold transition-all"
+                    style={{
+                      background: budget === v ? 'rgba(0,169,186,0.2)' : 'rgba(255,255,255,0.04)',
+                      border: budget === v ? '1px solid rgba(0,169,186,0.5)' : '1px solid rgba(255,255,255,0.08)',
+                      color: budget === v ? '#00A9BA' : '#64748B',
+                    }}>
+                    {v} ℏ
+                  </button>
+                ))}
+                <input
+                  type="number" min="1" value={budget}
+                  onChange={e => setBudget(e.target.value)}
+                  className="flex-1 bg-transparent rounded-xl px-3 text-sm text-white outline-none text-center"
+                  style={{ border: '1px solid rgba(255,255,255,0.12)' }}
+                />
+              </div>
+            </div>
+
+            {error && (
+              <p className="text-red-400 text-xs mb-4 px-1">{error}</p>
+            )}
+
+            {/* Buttons */}
+            <div className="flex gap-3">
+              <button onClick={onComplete} disabled={funding}
+                className="flex-1 py-3 rounded-xl text-sm font-semibold text-gray-500 hover:text-gray-300 transition-all disabled:opacity-40"
+                style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
+                Skip for now
+              </button>
+              <button onClick={fundAgent} disabled={funding || !budget}
+                className="flex-[2] py-3 rounded-xl text-white font-bold text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                style={{ background: 'linear-gradient(135deg, #00A9BA, #1565C0)' }}>
+                {funding ? <><Loader2 size={16} className="animate-spin" /> Funding…</> : <><WalletIcon size={14} /> Fund Agent <ArrowRightIcon size={14} /></>}
+              </button>
+            </div>
+          </>
+        )}
+      </motion.div>
     </div>
   );
 }
@@ -225,9 +382,10 @@ export default function CreatePage() {
   const [messages, setMessages] = useState<Message[]>([
     { role: 'assistant', content: "Hello! I'm your TradeAgent AI. Describe the trading strategy you want to deploy on Hedera. I'll configure the agent and prepare it for deployment." },
   ]);
-  const [input,   setInput]   = useState('');
-  const [loading, setLoading] = useState(false);
-  const [deployStep, setDeployStep] = useState<string | null>(null);
+  const [input,        setInput]        = useState('');
+  const [loading,      setLoading]      = useState(false);
+  const [deployStep,   setDeployStep]   = useState<string | null>(null);
+  const [fundModal,    setFundModal]    = useState<{ agentId: string; agentAccountId: string } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -323,7 +481,15 @@ export default function CreatePage() {
         throw new Error((errData as { error?: string }).error || 'Backend finalization failed');
       }
 
-      router.push(`/agents/${agentId}`);
+      const finalizeData = await finalizeRes.json() as { agentAccountId?: string };
+      setDeployStep(null);
+
+      // If backend created a dedicated agent account, show the fund step before redirect
+      if (finalizeData.agentAccountId) {
+        setFundModal({ agentId, agentAccountId: finalizeData.agentAccountId });
+      } else {
+        router.push(`/agents/${agentId}`);
+      }
     } catch (err: any) {
       console.error("Deployment failed:", err);
       if (err?.message?.includes('User rejected') || err?.message?.includes('rejected')) {
@@ -331,7 +497,6 @@ export default function CreatePage() {
       } else {
         alert(`Deployment failed: ${err.message}`);
       }
-    } finally {
       setDeployStep(null);
     }
   }
@@ -390,6 +555,18 @@ export default function CreatePage() {
   return (
     <div className="flex h-[calc(100vh-64px)]" style={{ background: 'var(--ta-bg)' }}>
       {deployStep && <DeployingModal step={deployStep} />}
+      {fundModal && signer && accountId && (
+        <FundAgentModal
+          agentId={fundModal.agentId}
+          agentAccountId={fundModal.agentAccountId}
+          signer={signer}
+          accountId={accountId}
+          onComplete={() => {
+            setFundModal(null);
+            router.push(`/agents/${fundModal.agentId}`);
+          }}
+        />
+      )}
 
       {/* ── Left Sidebar ───────────────────────────────────────── */}
       <aside

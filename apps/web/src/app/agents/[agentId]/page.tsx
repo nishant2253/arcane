@@ -6,10 +6,12 @@ import Link from 'next/link';
 import {
   ArrowLeftIcon, ExternalLinkIcon, PlayIcon, PauseIcon,
   ShieldCheckIcon, FileTextIcon, ActivityIcon, ClockIcon, ZapIcon,
-  ArrowRightLeftIcon, CheckCircle2Icon,
+  ArrowRightLeftIcon, CheckCircle2Icon, WalletIcon, TrendingUpIcon, ArrowDownToLineIcon,
+  Loader2,
 } from 'lucide-react';
 
 import { TradeApprovalModal } from '@/components/TradeApprovalModal';
+import { useWalletStore } from '@/stores/walletStore';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 const NETWORK  = process.env.NEXT_PUBLIC_HEDERA_NETWORK || 'testnet';
@@ -51,19 +53,28 @@ function relativeTime(timestamp: string): string {
 }
 
 interface AgentDetail {
-  id:           string;
-  name:         string;
-  ownerId:      string;
-  strategyType: string;
-  hcsTopicId:   string;
-  hfsConfigId:  string | null;
-  contractTxId: string | null;
-  hcs10TopicId: string | null;
-  active:       boolean;
-  listed:       boolean;
-  configHash:   string;
-  createdAt:    string;
-  executionMode: 'AUTO' | 'MANUAL';
+  id:                    string;
+  name:                  string;
+  ownerId:               string;
+  strategyType:          string;
+  hcsTopicId:            string;
+  hfsConfigId:           string | null;
+  contractTxId:          string | null;
+  hcs10TopicId:          string | null;
+  active:                boolean;
+  listed:                boolean;
+  configHash:            string;
+  createdAt:             string;
+  executionMode:         'AUTO' | 'MANUAL';
+  agentAccountId:        string | null;
+  agentAccountEvmAddress: string | null;
+  tradingBudgetHbar:     number;
+}
+
+interface AgentPortfolio {
+  hbar:   number;
+  tusdt:  number;
+  pnlPct: number | null;
 }
 
 interface PendingTrade {
@@ -93,12 +104,16 @@ function SignalBadge({ signal }: { signal: string }) {
 
 export default function AgentDetailPage({ params }: { params: Promise<{ agentId: string }> }) {
   const { agentId } = use(params);
-  const [agent,   setAgent]   = useState<AgentDetail | null>(null);
-  const [history, setHistory] = useState<HCSMessage[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [running, setRunning] = useState(false);
+  const [agent,       setAgent]       = useState<AgentDetail | null>(null);
+  const [history,     setHistory]     = useState<HCSMessage[]>([]);
+  const [loading,     setLoading]     = useState(true);
+  const [running,     setRunning]     = useState(false);
   const [pendingTrade, setPendingTrade] = useState<PendingTrade | null>(null);
   const [togglingMode, setTogglingMode] = useState(false);
+  const [portfolio,   setPortfolio]   = useState<AgentPortfolio | null>(null);
+  const [withdrawing, setWithdrawing] = useState(false);
+
+  const { accountId } = useWalletStore();
 
   useEffect(() => {
     Promise.all([
@@ -107,9 +122,60 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
     ]).then(([agentData, historyData]) => {
       setAgent(agentData);
       setHistory(historyData.history ?? []);
+      // If agent has a dedicated account, fetch its balances from Mirror Node
+      if (agentData.agentAccountId) {
+        fetchAgentPortfolio(agentData.agentAccountId, agentData.tradingBudgetHbar).then(setPortfolio);
+      }
     }).catch(console.error)
       .finally(() => setLoading(false));
   }, [agentId]);
+
+  async function fetchAgentPortfolio(agentAcctId: string, budgetHbar: number): Promise<AgentPortfolio> {
+    const base = `https://${NETWORK}.mirrornode.hedera.com/api/v1`;
+    const tUSDTId = process.env.NEXT_PUBLIC_TEST_USDT_TOKEN_ID;
+    try {
+      const [accRes, tokRes] = await Promise.all([
+        fetch(`${base}/accounts/${agentAcctId}`),
+        tUSDTId ? fetch(`${base}/accounts/${agentAcctId}/tokens?token.id=${tUSDTId}`) : Promise.resolve(null),
+      ]);
+      const accData = await accRes.json() as any;
+      const hbar    = (accData?.balance?.balance ?? 0) / 1e8;
+      let   tusdt   = 0;
+      if (tokRes) {
+        const tokData = await tokRes.json() as any;
+        tusdt = (tokData?.tokens?.[0]?.balance ?? 0) / 1e6;
+      }
+      const pnlPct = budgetHbar > 0
+        ? parseFloat((((hbar - budgetHbar) / budgetHbar) * 100).toFixed(2))
+        : null;
+      return { hbar, tusdt, pnlPct };
+    } catch {
+      return { hbar: 0, tusdt: 0, pnlPct: null };
+    }
+  }
+
+  async function withdraw() {
+    if (!agent?.agentAccountId || !accountId) return;
+    setWithdrawing(true);
+    try {
+      const res = await fetch(`${API_URL}/api/agents/${agentId}/withdraw`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ ownerAccountId: accountId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Withdrawal failed');
+      alert(`Withdrawal complete! HBAR and tUSDT sent back to your wallet.\nTx: ${data.txIds?.[0] ?? ''}`);
+      // Refresh portfolio
+      const p = await fetchAgentPortfolio(agent.agentAccountId, agent.tradingBudgetHbar);
+      setPortfolio(p);
+      setAgent(a => a ? { ...a, tradingBudgetHbar: 0 } : a);
+    } catch (err: any) {
+      alert(`Withdrawal failed: ${err.message}`);
+    } finally {
+      setWithdrawing(false);
+    }
+  }
 
   const triggerRun = async (dryRun = true) => {
     setRunning(true);
@@ -334,6 +400,85 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
           ))}
         </div>
       </div>
+
+      {/* ── Agent Portfolio (only if dedicated account exists) ───── */}
+      {agent.agentAccountId && (
+        <div className="glass-card p-6 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-semibold flex items-center gap-2" style={{ color: '#E2E8F0' }}>
+              <WalletIcon size={16} style={{ color: '#00A9BA' }} />
+              Agent Portfolio
+            </h2>
+            <a
+              href={`https://hashscan.io/${NETWORK}/account/${agent.agentAccountId}`}
+              target="_blank" rel="noopener noreferrer"
+              className="text-[10px] flex items-center gap-1 transition-colors hover:text-white"
+              style={{ color: '#334155' }}
+            >
+              {agent.agentAccountId} <ExternalLinkIcon size={10} />
+            </a>
+          </div>
+
+          {portfolio ? (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+              {/* HBAR balance */}
+              <div className="rounded-xl p-3" style={{ background: 'rgba(0,169,186,0.06)', border: '1px solid rgba(0,169,186,0.12)' }}>
+                <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: '#334155' }}>HBAR Balance</p>
+                <p className="text-lg font-bold font-mono" style={{ color: '#E2E8F0' }}>{portfolio.hbar.toFixed(4)}</p>
+                <p className="text-[10px]" style={{ color: '#475569' }}>ℏ</p>
+              </div>
+              {/* tUSDT balance */}
+              <div className="rounded-xl p-3" style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.12)' }}>
+                <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: '#334155' }}>tUSDT Balance</p>
+                <p className="text-lg font-bold font-mono" style={{ color: '#10B981' }}>{portfolio.tusdt.toFixed(4)}</p>
+                <p className="text-[10px]" style={{ color: '#475569' }}>tUSDT</p>
+              </div>
+              {/* Budget */}
+              <div className="rounded-xl p-3" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: '#334155' }}>Initial Budget</p>
+                <p className="text-lg font-bold font-mono" style={{ color: '#94A3B8' }}>{agent.tradingBudgetHbar.toFixed(2)}</p>
+                <p className="text-[10px]" style={{ color: '#475569' }}>ℏ funded</p>
+              </div>
+              {/* P&L */}
+              <div className="rounded-xl p-3" style={{
+                background: portfolio.pnlPct === null ? 'rgba(255,255,255,0.02)' : portfolio.pnlPct >= 0 ? 'rgba(16,185,129,0.06)' : 'rgba(239,68,68,0.06)',
+                border: `1px solid ${portfolio.pnlPct === null ? 'rgba(255,255,255,0.06)' : portfolio.pnlPct >= 0 ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)'}`,
+              }}>
+                <p className="text-[10px] uppercase tracking-wider mb-1 flex items-center gap-1" style={{ color: '#334155' }}>
+                  <TrendingUpIcon size={10} /> P&amp;L (HBAR)
+                </p>
+                <p className="text-lg font-bold font-mono" style={{
+                  color: portfolio.pnlPct === null ? '#475569' : portfolio.pnlPct >= 0 ? '#10B981' : '#EF4444',
+                }}>
+                  {portfolio.pnlPct === null ? '—' : `${portfolio.pnlPct >= 0 ? '+' : ''}${portfolio.pnlPct}%`}
+                </p>
+                <p className="text-[10px]" style={{ color: '#475569' }}>vs initial budget</p>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 py-4" style={{ color: '#334155' }}>
+              <Loader2 size={14} className="animate-spin" />
+              <span className="text-xs">Fetching agent balances…</span>
+            </div>
+          )}
+
+          {/* Withdraw button */}
+          <div className="flex items-center justify-between pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+            <p className="text-[10px]" style={{ color: '#1E293B' }}>
+              Operator-signed withdrawal — no HashPack required. Funds go back to <span style={{ color: '#00A9BA' }}>{agent.ownerId}</span>.
+            </p>
+            <button
+              onClick={withdraw}
+              disabled={withdrawing || !portfolio || (portfolio.hbar < 0.1 && portfolio.tusdt < 0.01)}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold cursor-pointer transition-all disabled:opacity-40"
+              style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', color: '#EF4444' }}
+            >
+              {withdrawing ? <Loader2 size={12} className="animate-spin" /> : <ArrowDownToLineIcon size={12} />}
+              Withdraw All
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── HCS Execution History ─────────────────────────────────── */}
       <div className="glass-card p-6">

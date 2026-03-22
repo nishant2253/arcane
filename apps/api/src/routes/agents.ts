@@ -20,6 +20,15 @@ import { AgentConfigSchema } from '../agent/promptBuilder';
 import { buildAgentFromPrompt } from '../agent/promptBuilder';
 import { runAgentCycle } from '../agent/agentRunner';
 import {
+  AccountCreateTransaction,
+  TokenAssociateTransaction,
+  TransferTransaction,
+  AccountId,
+  PrivateKey as HederaPrivateKey,
+  Hbar as HederaHbar,
+  TokenId,
+} from '@hashgraph/sdk';
+import {
   createHederaClient,
   getOperatorKey,
   getOperatorAccountId,
@@ -533,33 +542,75 @@ router.post('/finalize-deploy', async (req: Request, res: Response) => {
     console.log(`\n[finalize-deploy] Finalizing agent: ${agentId}`);
     console.log(`[finalize-deploy] Owner: ${ownerAccountId} | HCS: ${hcsTopicId}`);
 
-    // ── Step 4: Save to Supabase + schedule BullMQ (instant) ─────
-    // Do this FIRST so the frontend gets a response immediately.
+    // ── Step 4: Create dedicated agent trading account ────────────
+    // Each agent gets its own ECDSA Hedera account so it can trade
+    // autonomously in AUTO mode without requiring a per-trade user signature.
+    const client = createHederaClient();
+    let agentAccountId: string | null    = null;
+    let agentAccountEvmAddress: string | null = null;
+    let agentAccountPrivateKey: string | null = null;
+
+    try {
+      console.log('[finalize-deploy] Creating agent trading account...');
+      const agentKey = HederaPrivateKey.generateECDSA();
+      const agentAccountTx = await new AccountCreateTransaction()
+        .setKeyWithoutAlias(agentKey.publicKey)
+        .setInitialBalance(new HederaHbar(0.1)) // seed from operator for gas
+        .setAccountMemo(`TradeAgent:${agentId}`)
+        .execute(client);
+      const agentAccountReceipt = await agentAccountTx.getReceipt(client);
+      agentAccountId         = agentAccountReceipt.accountId!.toString();
+      agentAccountEvmAddress = `0x${agentKey.publicKey.toEvmAddress()}`;
+      agentAccountPrivateKey = agentKey.toStringRaw(); // 32-byte hex ECDSA key
+
+      console.log(`[finalize-deploy] ✅ Agent account created: ${agentAccountId} (${agentAccountEvmAddress})`);
+
+      // Associate tUSDT token with agent account so MockDEX can send tUSDT to it
+      const tUSDTTokenIdStr = process.env.TEST_USDT_TOKEN_ID;
+      if (tUSDTTokenIdStr) {
+        try {
+          const assocTx = await new TokenAssociateTransaction()
+            .setAccountId(AccountId.fromString(agentAccountId))
+            .setTokenIds([TokenId.fromString(tUSDTTokenIdStr)])
+            .freezeWith(client)
+            .sign(agentKey);
+          await assocTx.execute(client);
+          console.log(`[finalize-deploy] ✅ tUSDT associated with agent account`);
+        } catch (assocErr) {
+          console.warn('[finalize-deploy] ⚠️  tUSDT association failed (non-fatal):', (assocErr as Error).message);
+        }
+      }
+    } catch (accountErr) {
+      console.warn('[finalize-deploy] ⚠️  Agent account creation failed (non-fatal):', (accountErr as Error).message);
+    }
+
+    // ── Step 5: Save to Supabase + schedule BullMQ (instant) ─────
     const resolvedConfigHash = configHash || computeConfigHash(config);
 
     const agent = await prisma.agent.create({
       data: {
-        id:           agentId,
-        name:         config.name,
-        ownerId:      ownerAccountId,
-        config:       config as object,
-        configHash:   resolvedConfigHash,
-        strategyType: config.strategyType,
+        id:                    agentId,
+        name:                  config.name,
+        ownerId:               ownerAccountId,
+        config:                config as object,
+        configHash:            resolvedConfigHash,
+        strategyType:          config.strategyType,
         hcsTopicId,
-        hfsConfigId:  hfsFileId,
-        contractTxId: contractTxHash,
-        hcs10TopicId: null, // will be patched in background
-        active:       true,
+        hfsConfigId:           hfsFileId,
+        contractTxId:          contractTxHash,
+        hcs10TopicId:          null, // will be patched in background
+        agentAccountId,
+        agentAccountEvmAddress,
+        agentAccountPrivateKey,
+        active:                true,
       },
     });
 
-    // ── Step 5: Schedule BullMQ cron job ─────────────────────────
+    // ── Step 6: Schedule BullMQ cron job ─────────────────────────
     await scheduleAgentJob({ ...config, agentId }, hcsTopicId, false);
     console.log(`[finalize-deploy] ✅ DB saved + BullMQ scheduled | Agent ${agentId} is live.`);
 
-    // ── Step 6: HCS-10 OpenConvAI registration — fire-and-forget ─
-    // This uses an inscription SDK that can take 30–90 seconds.
-    // Run it in the background so the user is redirected instantly.
+    // ── Step 7: HCS-10 OpenConvAI registration — fire-and-forget ─
     setImmediate(() => {
       registerAgentHCS10({
         name:         config.name,
@@ -571,7 +622,6 @@ router.post('/finalize-deploy', async (req: Request, res: Response) => {
         .then(async (hcs10Result) => {
           const hcs10TopicId = hcs10Result.inboundTopicId;
           console.log(`[finalize-deploy] ✅ HCS-10 registered (background): ${hcs10TopicId}`);
-          // Patch the agent record with the HCS-10 topic
           await prisma.agent.update({
             where: { id: agentId },
             data:  { hcs10TopicId },
@@ -584,12 +634,14 @@ router.post('/finalize-deploy', async (req: Request, res: Response) => {
 
     res.status(201).json({
       agentId,
-      name:        agent.name,
+      name:                  agent.name,
       hcsTopicId,
-      hfsConfigId: hfsFileId,
-      hcs10TopicId: null, // populated in background
+      hfsConfigId:           hfsFileId,
+      hcs10TopicId:          null,
       contractTxHash,
-      scheduled:   true,
+      agentAccountId,        // returned so frontend can show "Fund Agent" step
+      agentAccountEvmAddress,
+      scheduled:             true,
       links: {
         agent:    `/agents/${agentId}`,
         topic:    `https://hashscan.io/${network}/topic/${hcsTopicId}`,
@@ -603,6 +655,116 @@ router.post('/finalize-deploy', async (req: Request, res: Response) => {
       ? err.errors.map(e => e.message).join(', ')
       : (err as Error).message;
     res.status(500).json({ error: msg });
+  }
+});
+
+// ── POST /api/agents/:id/fund ─────────────────────────────────────
+/**
+ * Called by frontend after user has sent HBAR to agentAccountId via HashPack.
+ * Records the funded budget so the agent can start trading in AUTO mode.
+ */
+router.post('/:agentId/fund', async (req: Request, res: Response) => {
+  try {
+    const agentId = String(req.params.agentId);
+    const { budgetHbar } = z.object({ budgetHbar: z.number().positive() }).parse(req.body);
+
+    const agent = await prisma.agent.findUnique({ where: { id: agentId } });
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!agent.agentAccountId) return res.status(400).json({ error: 'Agent account not created yet' });
+
+    const updated = await prisma.agent.update({
+      where: { id: agentId },
+      data:  { tradingBudgetHbar: budgetHbar },
+    });
+
+    console.log(`[Fund] Agent ${agentId} funded with ${budgetHbar} HBAR → account ${agent.agentAccountId}`);
+    res.json({ agentId, agentAccountId: agent.agentAccountId, tradingBudgetHbar: updated.tradingBudgetHbar });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// ── POST /api/agents/:id/withdraw ─────────────────────────────────
+/**
+ * Operator-signed withdrawal: transfers all remaining HBAR + tUSDT from the
+ * agent's dedicated Hedera account back to the owner's account.
+ * Uses the agent's stored ECDSA key — no user signature required for the transfer.
+ */
+router.post('/:agentId/withdraw', async (req: Request, res: Response) => {
+  try {
+    const agentId = String(req.params.agentId);
+    const { ownerAccountId } = z.object({ ownerAccountId: z.string().min(5) }).parse(req.body);
+
+    const agent = await prisma.agent.findUnique({ where: { id: agentId } });
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!agent.agentAccountId || !agent.agentAccountPrivateKey) {
+      return res.status(400).json({ error: 'Agent account not configured' });
+    }
+    if (agent.ownerId !== ownerAccountId) {
+      return res.status(403).json({ error: 'Only the agent owner can withdraw' });
+    }
+
+    const client          = createHederaClient();
+    const agentKey        = HederaPrivateKey.fromStringECDSA(agent.agentAccountPrivateKey);
+    const agentAcctId     = AccountId.fromString(agent.agentAccountId);
+    const ownerAcctId     = AccountId.fromString(ownerAccountId);
+    const network         = process.env.HEDERA_NETWORK || 'testnet';
+    const tUSDTTokenIdStr = process.env.TEST_USDT_TOKEN_ID;
+
+    // Fetch agent account HBAR balance from Mirror Node
+    const mirrorRes = await fetch(`https://${network}.mirrornode.hedera.com/api/v1/accounts/${agent.agentAccountId}`);
+    const mirrorData = await mirrorRes.json() as any;
+    const balanceTinybars = BigInt(mirrorData?.balance?.balance ?? 0);
+
+    const txIds: string[] = [];
+
+    // Transfer HBAR (keep a small reserve for the transaction fee itself)
+    const feeReserve = BigInt(5_000_000); // 0.05 HBAR
+    if (balanceTinybars > feeReserve) {
+      const withdrawAmount = balanceTinybars - feeReserve;
+      const hbarTx = await new TransferTransaction()
+        .addHbarTransfer(agentAcctId, HederaHbar.fromTinybars(-withdrawAmount))
+        .addHbarTransfer(ownerAcctId, HederaHbar.fromTinybars(withdrawAmount))
+        .freezeWith(client)
+        .sign(agentKey);
+      const hbarResponse = await hbarTx.execute(client);
+      txIds.push(hbarResponse.transactionId.toString());
+      console.log(`[Withdraw] HBAR transfer: ${Number(withdrawAmount) / 1e8} HBAR → ${ownerAccountId}`);
+    }
+
+    // Transfer tUSDT if present
+    if (tUSDTTokenIdStr) {
+      try {
+        const tokenRes = await fetch(
+          `https://${network}.mirrornode.hedera.com/api/v1/accounts/${agent.agentAccountId}/tokens?token.id=${tUSDTTokenIdStr}`
+        );
+        const tokenData = await tokenRes.json() as any;
+        const tusdtBalance = BigInt(tokenData?.tokens?.[0]?.balance ?? 0);
+
+        if (tusdtBalance > 0n) {
+          const tokenTx = await new TransferTransaction()
+            .addTokenTransfer(TokenId.fromString(tUSDTTokenIdStr), agentAcctId, -tusdtBalance)
+            .addTokenTransfer(TokenId.fromString(tUSDTTokenIdStr), ownerAcctId, tusdtBalance)
+            .freezeWith(client)
+            .sign(agentKey);
+          const tokenResponse = await tokenTx.execute(client);
+          txIds.push(tokenResponse.transactionId.toString());
+          console.log(`[Withdraw] tUSDT transfer: ${Number(tusdtBalance) / 1e6} tUSDT → ${ownerAccountId}`);
+        }
+      } catch (tokenErr) {
+        console.warn('[Withdraw] tUSDT transfer failed (non-fatal):', (tokenErr as Error).message);
+      }
+    }
+
+    // Reset budget in DB
+    await prisma.agent.update({
+      where: { id: agentId },
+      data:  { tradingBudgetHbar: 0 },
+    });
+
+    res.json({ agentId, ownerAccountId, txIds, message: 'Withdrawal complete' });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
   }
 });
 
