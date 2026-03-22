@@ -96,13 +96,11 @@ export async function submitAgentDecision(
     timestamp: decision.timestamp,
   });
 
-  const tx = new TopicMessageSubmitTransaction()
+  const response = await new TopicMessageSubmitTransaction()
     .setTopicId(TopicId.fromString(topicId))
     .setMessage(message)
     .setMaxTransactionFee(new Hbar(1))
-    .freezeWith(client);
-
-  const response = await tx.execute(client);
+    .execute(client);
 
   const receipt = await response.getReceipt(client);
 

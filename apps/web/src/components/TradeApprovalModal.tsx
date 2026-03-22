@@ -74,9 +74,9 @@ export function TradeApprovalModal({
 
       const contractTx = await new ContractExecuteTransaction()
         .setContractId(contractId)
-        .setGas(300000)
+        .setGas(800000)
         .setFunction('executeSwap', fnParams)
-        .setMaxTransactionFee(new Hbar(2))
+        .setMaxTransactionFee(new Hbar(5))
         .freezeWithSigner(signer);
 
       const response = await contractTx.executeWithSigner(signer);
