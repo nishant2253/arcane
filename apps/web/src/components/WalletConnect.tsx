@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useWalletStore } from '@/stores/walletStore'
-import { connectWallet, disconnectWallet } from '@/lib/wallet'
+import { connectWallet, disconnectWallet, rehydrateWallet } from '@/lib/wallet'
 import { Loader2 } from 'lucide-react'
 import { useBalances } from '@/lib/balance'
 import { associateTUSDT } from '@/lib/tokenAssociation'
@@ -13,18 +13,24 @@ export function WalletConnectButton() {
   const [loading, setLoading] = useState(false)
 
   useBalances()
-  
-  // Auto-rehydrate signer on page load if session exists
+
+  // Auto-rehydrate signer on page load if Zustand says connected but signer was cleared
+  // (signer is excluded from localStorage persist, so it's always null after a hard refresh).
+  // Uses rehydrateWallet() — never opens a modal. If no WC session exists, clears stale state.
   useEffect(() => {
-    if (isConnected && accountId && !useWalletStore.getState().signer) {
-      console.log("Rehydrating wallet session...");
-      connectWallet().then(({ accountId, evmAddress, walletName, connector, signer }) => {
-        setWallet(accountId, evmAddress, walletName, connector, signer);
-      }).catch(err => {
-        console.warn("Auto-rehydration failed:", err);
-      });
-    }
-  }, [isConnected, accountId, setWallet]);
+    if (!isConnected || !accountId || useWalletStore.getState().signer) return
+    console.log('Rehydrating wallet session...')
+    rehydrateWallet().then((result) => {
+      if (result) {
+        setWallet(result.accountId, result.evmAddress, result.walletName, result.connector, result.signer)
+      } else {
+        // WalletConnect session expired or missing — clear stale Zustand state
+        console.log('No active WC session found, clearing stale wallet state.')
+        disconnect()
+      }
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])  // Run once on mount only — avoids re-triggering on state changes
 
 
 

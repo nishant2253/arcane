@@ -26,6 +26,7 @@ interface TradeParams {
   price: number; // current asset price in USD
   indicators: Record<string, number>;
   hederaClient: any; // @hashgraph/sdk Client
+  dryRun?: boolean; // if true, log to HCS but skip swap execution
 }
 
 interface TradeResult {
@@ -87,10 +88,11 @@ export async function executeTradeSignal(
     };
   }
 
-  // HOLD or MANUAL mode — log to HCS but do not execute automated swap
-  if (signal === "HOLD" || mode === "MANUAL") {
-    console.log(`[Trade] Signal is ${signal} | Mode is ${mode} — no automated swap executed`);
-    return { hcsResult, tradeResult: null, mode: signal === "HOLD" ? "HOLD" : "MANUAL_PENDING" as any };
+  // HOLD, MANUAL mode, or dry-run — log to HCS but do not execute automated swap
+  if (signal === "HOLD" || mode === "MANUAL" || params.dryRun) {
+    const skipReason = signal === "HOLD" ? "HOLD" : params.dryRun ? "DRY_RUN" : "MANUAL_PENDING";
+    console.log(`[Trade] Signal is ${signal} | Mode is ${mode} | DryRun: ${!!params.dryRun} — skipping swap (${skipReason})`);
+    return { hcsResult, tradeResult: null, mode: skipReason as any };
   }
 
   // ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■

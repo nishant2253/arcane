@@ -8,6 +8,9 @@ import { useWalletStore } from '@/stores/walletStore';
 import { getHashPackEthersSigner } from '@/lib/hashpackEthers';
 import { fetchBalances } from '@/lib/balance';
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
+const NETWORK  = process.env.NEXT_PUBLIC_HEDERA_NETWORK || 'testnet';
+
 const MOCK_DEX_ABI = [
   "function sellHBARforUSDT(string agentId, uint256 minOut, string hcsSeq, string topicId) payable returns (uint256)",
   "function buyHBARwithUSDT(string agentId, uint256 usdtIn, uint256 minHbarOut, string hcsSeq, string topicId) returns (uint256)",
@@ -17,6 +20,7 @@ const MOCK_DEX_ABI = [
 interface TradeApprovalProps {
   signal: 'BUY' | 'SELL';
   agentId: string;
+  agentName?: string;
   hcsTopicId: string;
   hcsSequenceNum: string;
   amount: bigint; // tinybars for SELL, micro-USDT for BUY
@@ -27,7 +31,7 @@ interface TradeApprovalProps {
 }
 
 export function TradeApprovalModal({
-  signal, agentId, hcsTopicId, hcsSequenceNum,
+  signal, agentId, agentName, hcsTopicId, hcsSequenceNum,
   amount, price, confidence, onApprove, onReject
 }: TradeApprovalProps) {
   const { signer, accountId, setBalances } = useWalletStore();
@@ -79,7 +83,22 @@ export function TradeApprovalModal({
 
       const receipt = await tx.wait();
       setTxHash(receipt.hash);
-      
+
+      // Record in audit log (fire-and-forget)
+      fetch(`${API_URL}/api/transactions`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          ownerId:    accountId,
+          agentId,
+          type:       'TRADE_SWAP',
+          txId:       receipt.hash,
+          status:     'SUCCESS',
+          details:    { agentName: agentName ?? agentId, signal, price, confidence, hcsSequenceNum },
+          hashscanUrl: `https://hashscan.io/${NETWORK}/transaction/${receipt.hash}`,
+        }),
+      }).catch(() => {});
+
       // Refresh balances immediately
       const b = await fetchBalances(accountId);
       setBalances(b.hbar, b.tusdt);
@@ -171,6 +190,15 @@ export function TradeApprovalModal({
               </div>
               <p className="text-green-400 font-bold mb-1">Trade Executed!</p>
               <p className="text-[10px] text-gray-500 font-mono truncate px-8">{txHash}</p>
+              <a
+                href={`https://hashscan.io/${NETWORK}/transaction/${txHash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 inline-flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded-lg transition-colors"
+                style={{ background: 'rgba(0,169,186,0.12)', color: '#00A9BA', border: '1px solid rgba(0,169,186,0.25)' }}
+              >
+                View on HashScan ↗
+              </a>
             </div>
           ) : (
             <div className="flex gap-3">

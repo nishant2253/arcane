@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import { loadEnv } from './config/env';
 import agentsRouter from './routes/agents';
 import marketplaceRouter from './routes/marketplace';
+import transactionsRouter from './routes/transactions';
 
 // Load and validate environment variables first
 loadEnv();
@@ -32,8 +33,9 @@ app.get('/health', (_req, res) => {
 });
 
 // ── Phase 5: API Routes ──────────────────────────────────────────
-app.use('/api/agents',      agentsRouter);
-app.use('/api/marketplace', marketplaceRouter);
+app.use('/api/agents',       agentsRouter);
+app.use('/api/marketplace',  marketplaceRouter);
+app.use('/api/transactions', transactionsRouter);
 
 // ── Root ─────────────────────────────────────────────────────────
 app.get('/', (_req, res) => {
@@ -55,6 +57,8 @@ app.get('/', (_req, res) => {
       listNFT:          'POST /api/marketplace/list',
       getListingDetail: 'GET  /api/marketplace/:id',
       delistNFT:        'DELETE /api/marketplace/:id',
+      logTransaction:   'POST /api/transactions',
+      getTransactions:  'GET  /api/transactions?ownerId=X',
     },
   });
 });

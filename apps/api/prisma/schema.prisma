@@ -87,3 +87,28 @@ model Execution {
   @@index([signal])
   @@index([createdAt])
 }
+
+// ── Transaction Model ─────────────────────────────────────────────
+// Records every HashPack-approved on-chain transaction for the wallet
+// audit log. Source is the frontend after each TX confirmation.
+
+model Transaction {
+  id          String   @id @default(uuid())
+  ownerId     String   // Hedera account ID of the signer (0.0.XXXXX)
+  agentId     String?  // Associated agent (null for token association)
+
+  // Transaction classification
+  type        String   // DEPLOY_HFS | DEPLOY_HCS | DEPLOY_HSCS | TRADE_SWAP | TOKEN_ASSOCIATE
+  txId        String   // Hedera native tx ID or EVM 0x hash
+  status      String   @default("SUCCESS") // SUCCESS | FAILED
+
+  // Flexible metadata for display
+  details     Json?    // { agentName, signal, price, confidence, ... }
+  hashscanUrl String   // Direct HashScan deep-link
+
+  createdAt   DateTime @default(now())
+
+  @@index([ownerId])
+  @@index([agentId])
+  @@index([createdAt])
+}

@@ -5,7 +5,8 @@ import { motion } from 'framer-motion';
 import Link from 'next/link';
 import {
   ArrowLeftIcon, ExternalLinkIcon, PlayIcon, PauseIcon,
-  ShieldCheckIcon, FileTextIcon, ActivityIcon, ClockIcon,
+  ShieldCheckIcon, FileTextIcon, ActivityIcon, ClockIcon, ZapIcon,
+  ArrowRightLeftIcon, CheckCircle2Icon,
 } from 'lucide-react';
 
 import { TradeApprovalModal } from '@/components/TradeApprovalModal';
@@ -21,8 +22,32 @@ interface HCSMessage {
     confidence: number;
     price:      number;
     reasoning:  string;
+    indicators?: Record<string, number>;
   } | null;
   hashscanUrl: string;
+}
+
+/** Parse the flat reasoning string that tradeExecutor writes for EXECUTION_RESULT */
+function parseExecutionReasoning(reasoning: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  const pairs = reasoning.split(/\.\s+/);
+  for (const pair of pairs) {
+    const colonIdx = pair.indexOf(':');
+    if (colonIdx === -1) continue;
+    const key = pair.slice(0, colonIdx).trim().toLowerCase().replace(/\s+/g, '_');
+    const val = pair.slice(colonIdx + 1).trim().replace(/\.$/, '');
+    if (key && val) result[key] = val;
+  }
+  return result;
+}
+
+function relativeTime(timestamp: string): string {
+  const ms = parseFloat(timestamp) * 1000;
+  const diff = Date.now() - ms;
+  if (diff < 60_000) return `${Math.floor(diff / 1000)}s ago`;
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
+  return new Date(ms).toLocaleDateString();
 }
 
 interface AgentDetail {
@@ -226,7 +251,28 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
           </div>
 
           {/* Actions */}
-          <div className="flex gap-2 shrink-0">
+          <div className="flex gap-2 shrink-0 flex-wrap items-center">
+            <div className="relative group">
+              <button
+                onClick={() => triggerRun(false)}
+                disabled={running || !agent.active || agent.executionMode === 'AUTO'}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold cursor-pointer transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{
+                  background: running ? 'rgba(16,185,129,0.06)' : 'linear-gradient(135deg, rgba(16,185,129,0.18), rgba(0,169,186,0.18))',
+                  border: '1px solid rgba(16,185,129,0.35)',
+                  color: '#10B981',
+                }}
+              >
+                <ZapIcon size={14} />
+                {running ? 'Running…' : 'Run Trade'}
+              </button>
+              {agent.executionMode === 'AUTO' && (
+                <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10"
+                  style={{ background: '#0F172A', border: '1px solid rgba(255,255,255,0.08)', color: '#64748B' }}>
+                  Disabled in Auto mode — agent signs automatically
+                </div>
+              )}
+            </div>
             <button
               onClick={() => triggerRun(true)}
               disabled={running}
@@ -234,7 +280,8 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
               style={{ background: 'rgba(0,169,186,0.12)', border: '1px solid rgba(0,169,186,0.25)', color: '#00A9BA' }}
             >
               <PlayIcon size={14} />
-              {running ? 'Running…' : 'Dry Run'}
+              <span>{running ? 'Running…' : 'Test Run'}</span>
+              <span className="text-[9px] opacity-60 font-normal">no swap</span>
             </button>
             <button
               onClick={togglePause}
@@ -305,64 +352,145 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
           <div className="py-12 text-center">
             <ClockIcon size={28} className="mx-auto mb-3" style={{ color: '#1C2333' }} />
             <p className="text-sm" style={{ color: '#334155' }}>No executions yet.</p>
-            <p className="text-xs mt-1" style={{ color: '#1E293B' }}>Click "Dry Run" to test your agent, or wait for the BullMQ cron cycle.</p>
+            <p className="text-xs mt-1" style={{ color: '#1E293B' }}>
+              {agent.executionMode === 'AUTO'
+                ? 'Agent is in Auto mode — trades will execute automatically based on the BullMQ schedule.'
+                : 'Click "Run Trade" to execute a live cycle or "Test Run · no swap" to simulate without spending HBAR.'}
+            </p>
           </div>
         ) : (
           <div className="space-y-2">
-            {history.map((msg, i) => (
-              <motion.div
-                key={msg.seq}
-                initial={{ opacity: 0, x: -8 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: i * 0.03 }}
-                className="flex items-start gap-3 p-3 rounded-xl"
-                style={{ background: 'rgba(255,255,255,0.02)' }}
-              >
-                {/* Signal */}
-                <SignalBadge signal={msg.decision?.signal ?? '—'} />
+            {history.map((msg, i) => {
+              const isExecResult = msg.decision?.signal === 'EXECUTION_RESULT';
+              const execParsed   = isExecResult ? parseExecutionReasoning(msg.decision?.reasoning ?? '') : null;
+              const swapTxHash   = execParsed?.txhash ?? execParsed?.tx_hash;
+              const swapDir      = execParsed?.direction ?? '';
+              const amtIn        = msg.decision?.indicators?.amountIn;
+              const amtOut       = msg.decision?.indicators?.amountOut;
+              const slippageBps  = msg.decision?.indicators?.slippageBps;
 
-                {/* Details */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-xs" style={{ color: '#E2E8F0', fontFamily: 'monospace' }}>
-                      Seq #{msg.seq}
-                    </span>
-                    {msg.decision?.confidence != null && (
-                      <span className="text-xs" style={{ color: '#475569' }}>
-                        Confidence: <span style={{ color: '#94A3B8' }}>{msg.decision.confidence}%</span>
-                      </span>
+              // Key indicator values from decision messages
+              const indicatorEntries = msg.decision?.indicators
+                ? Object.entries(msg.decision.indicators).filter(([k]) => !['price', 'signal_strength'].includes(k))
+                : [];
+
+              return (
+                <motion.div
+                  key={msg.seq}
+                  initial={{ opacity: 0, x: -8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.03 }}
+                  className="p-3 rounded-xl"
+                  style={{
+                    background: isExecResult
+                      ? 'rgba(16,185,129,0.04)'
+                      : 'rgba(255,255,255,0.02)',
+                    border: isExecResult ? '1px solid rgba(16,185,129,0.12)' : '1px solid rgba(255,255,255,0.03)',
+                  }}
+                >
+                  <div className="flex items-start gap-3">
+                    {/* Signal badge / swap icon */}
+                    {isExecResult ? (
+                      <div className="flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-bold"
+                        style={{ background: 'rgba(16,185,129,0.15)', color: '#10B981', border: '1px solid rgba(16,185,129,0.3)', whiteSpace: 'nowrap' }}>
+                        <CheckCircle2Icon size={11} />
+                        SWAP DONE
+                      </div>
+                    ) : (
+                      <SignalBadge signal={msg.decision?.signal ?? '—'} />
                     )}
-                    {msg.decision?.price != null && (
-                      <span className="text-xs" style={{ color: '#475569' }}>
-                        Price: <span style={{ color: '#94A3B8' }}>${msg.decision.price.toFixed(4)}</span>
+
+                    {/* Main content */}
+                    <div className="flex-1 min-w-0">
+                      {/* Header row */}
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mb-1">
+                        <span className="text-xs font-mono" style={{ color: '#E2E8F0' }}>Seq #{msg.seq}</span>
+
+                        {!isExecResult && msg.decision?.confidence != null && (
+                          <span className="text-xs" style={{ color: '#475569' }}>
+                            Confidence: <span style={{ color: '#94A3B8' }}>{msg.decision.confidence}%</span>
+                          </span>
+                        )}
+                        {!isExecResult && msg.decision?.price != null && (
+                          <span className="text-xs" style={{ color: '#475569' }}>
+                            Price: <span style={{ color: '#94A3B8' }}>${msg.decision.price.toFixed(6)}</span>
+                          </span>
+                        )}
+
+                        {/* Swap details */}
+                        {isExecResult && swapDir && (
+                          <span className="flex items-center gap-1 text-xs" style={{ color: '#64748B' }}>
+                            <ArrowRightLeftIcon size={11} style={{ color: '#10B981' }} />
+                            {swapDir === 'HBAR_TO_USDC' ? 'HBAR → tUSDT' : 'tUSDT → HBAR'}
+                          </span>
+                        )}
+                        {isExecResult && amtIn != null && amtOut != null && (
+                          <span className="text-xs" style={{ color: '#475569' }}>
+                            <span style={{ color: '#94A3B8' }}>{(Number(amtIn) / 1e8).toFixed(4)}</span>
+                            {' → '}
+                            <span style={{ color: '#10B981' }}>{(Number(amtOut) / 1e6).toFixed(4)}</span>
+                          </span>
+                        )}
+                        {isExecResult && slippageBps != null && (
+                          <span className="text-xs" style={{ color: '#475569' }}>
+                            Slippage: <span style={{ color: '#94A3B8' }}>{(Number(slippageBps) / 100).toFixed(2)}%</span>
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Reasoning (decision) or tx hash (execution) */}
+                      {!isExecResult && msg.decision?.reasoning && (
+                        <p className="text-xs leading-relaxed mb-1.5" style={{ color: '#334155' }}>
+                          {msg.decision.reasoning}
+                        </p>
+                      )}
+
+                      {/* Indicator chips for decision messages */}
+                      {!isExecResult && indicatorEntries.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mt-1">
+                          {indicatorEntries.map(([k, v]) => (
+                            <span key={k} className="text-[10px] px-1.5 py-0.5 rounded font-mono"
+                              style={{ background: 'rgba(0,169,186,0.08)', color: '#00A9BA', border: '1px solid rgba(0,169,186,0.15)' }}>
+                              {k}: {typeof v === 'number' ? v.toFixed(4) : v}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Execution: swap tx hash link */}
+                      {isExecResult && swapTxHash && (
+                        <a
+                          href={`https://hashscan.io/${NETWORK}/transaction/${swapTxHash}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 text-xs font-mono mt-1 w-fit transition-colors hover:text-white"
+                          style={{ color: '#10B981' }}
+                        >
+                          <ExternalLinkIcon size={10} />
+                          {swapTxHash.slice(0, 14)}…{swapTxHash.slice(-8)} ↗ HashScan
+                        </a>
+                      )}
+                    </div>
+
+                    {/* Timestamp + HCS link */}
+                    <div className="flex flex-col items-end gap-1 flex-shrink-0 text-right">
+                      <span className="text-[10px]" style={{ color: '#475569' }}>
+                        {relativeTime(msg.timestamp)}
                       </span>
-                    )}
+                      <a
+                        href={msg.hashscanUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1 text-[10px] transition-colors hover:text-white"
+                        style={{ color: '#334155' }}
+                      >
+                        HashScan <ExternalLinkIcon size={10} />
+                      </a>
+                    </div>
                   </div>
-                  {msg.decision?.reasoning && (
-                    <p className="text-xs leading-relaxed" style={{ color: '#334155' }}>
-                      {msg.decision.reasoning}
-                    </p>
-                  )}
-                </div>
-
-                {/* Timestamp + HashScan link */}
-                <div className="flex flex-col items-end gap-1 flex-shrink-0 text-right">
-                  <span className="text-[10px]" style={{ color: '#1E293B', fontFamily: 'monospace' }}>
-                    {new Date(parseFloat(msg.timestamp) * 1000).toLocaleTimeString()}
-                  </span>
-                  <a
-                    href={msg.hashscanUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1 text-[10px] cursor-pointer transition-colors duration-200 hover:text-white"
-                    style={{ color: '#334155' }}
-                  >
-                    HashScan
-                    <ExternalLinkIcon size={10} />
-                  </a>
-                </div>
-              </motion.div>
-            ))}
+                </motion.div>
+              );
+            })}
           </div>
         )}
 

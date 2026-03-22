@@ -27,6 +27,7 @@ import {
   storeAgentConfig,
   registerAgentHCS10,
 } from '@tradeagent/hedera';
+import { computeConfigHash } from '../agent/promptBuilder';
 import { agentQueue, scheduleAgentJob } from '../agent/agentWorker';
 
 const router = Router();
@@ -390,30 +391,35 @@ router.post('/:agentId/run', async (req: Request, res: Response) => {
     );
 
     // Cache result in DB (Mirror Node is still source of truth)
+    const tr = result.tradeResult as { txHash?: string; fillPrice?: number; slippageBps?: number } | null;
     await prisma.execution.create({
       data: {
-        agentId:           agent.id,
-        signal:            result.decision.signal,
-        price:             result.decision.price,
-        confidence:        result.decision.confidence,
-        reasoning:         result.decision.reasoning,
-        hcsSequenceNumber: result.hcsResult.sequenceNumber,
+        agentId:            agent.id,
+        signal:             result.decision.signal,
+        price:              result.decision.price,
+        confidence:         result.decision.confidence,
+        reasoning:          result.decision.reasoning,
+        hcsSequenceNumber:  result.hcsResult.sequenceNumber,
         consensusTimestamp: result.hcsResult.consensusTimestamp,
+        swapTxId:           tr?.txHash    ?? null,
+        fillPrice:          tr?.fillPrice ?? null,
+        slippage:           tr?.slippageBps != null ? tr.slippageBps / 100 : null,
       },
     });
 
     const network = process.env.HEDERA_NETWORK || 'testnet';
     res.json({
-      signal:        result.decision.signal,
-      confidence:    result.decision.confidence,
-      reasoning:     result.decision.reasoning,
-      price:         result.decision.price,
+      signal:            result.decision.signal,
+      confidence:        result.decision.confidence,
+      reasoning:         result.decision.reasoning,
+      price:             result.decision.price,
       hcsSequenceNumber: result.hcsResult.sequenceNumber,
-      hcsTimestamp:  result.hcsResult.consensusTimestamp,
-      swapExecuted:  result.swapExecuted,
-      cycleMs:       result.cycleMs,
+      hcsTimestamp:      result.hcsResult.consensusTimestamp,
+      swapExecuted:      result.swapExecuted,
+      swapTxId:          tr?.txHash ?? null,
+      cycleMs:           result.cycleMs,
       dryRun,
-      hashscanUrl:   `https://hashscan.io/${network}/topic/${agent.hcsTopicId}`,
+      hashscanUrl:       `https://hashscan.io/${network}/topic/${agent.hcsTopicId}`,
     });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
@@ -491,6 +497,112 @@ router.post("/:agentId/trigger", async (req, res) => {
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/agents/finalize-deploy ─────────────────────────────
+/**
+ * Called by the frontend AFTER the user has signed HFS, HCS, and HSCS
+ * transactions via HashPack. This endpoint handles the backend-only steps:
+ *   4. HCS-10 OpenConvAI registration (operator pays, silent)
+ *   5. Save agent to Supabase via Prisma
+ *   6. Schedule BullMQ cron job
+ *
+ * The user-signed transactions (HFS/HCS/HSCS) are already on-chain
+ * before this endpoint is called.
+ */
+router.post('/finalize-deploy', async (req: Request, res: Response) => {
+  try {
+    const {
+      agentId,
+      config,
+      configHash,
+      hcsTopicId,
+      hfsFileId,
+      contractTxHash,
+      ownerAccountId,
+    } = req.body;
+
+    if (!agentId || !config || !hcsTopicId || !ownerAccountId) {
+      return res.status(400).json({ error: 'Missing required fields: agentId, config, hcsTopicId, ownerAccountId' });
+    }
+
+    const operatorId = getOperatorAccountId().toString();
+    const network    = process.env.HEDERA_NETWORK || 'testnet';
+
+    console.log(`\n[finalize-deploy] Finalizing agent: ${agentId}`);
+    console.log(`[finalize-deploy] Owner: ${ownerAccountId} | HCS: ${hcsTopicId}`);
+
+    // ── Step 4: Save to Supabase + schedule BullMQ (instant) ─────
+    // Do this FIRST so the frontend gets a response immediately.
+    const resolvedConfigHash = configHash || computeConfigHash(config);
+
+    const agent = await prisma.agent.create({
+      data: {
+        id:           agentId,
+        name:         config.name,
+        ownerId:      ownerAccountId,
+        config:       config as object,
+        configHash:   resolvedConfigHash,
+        strategyType: config.strategyType,
+        hcsTopicId,
+        hfsConfigId:  hfsFileId,
+        contractTxId: contractTxHash,
+        hcs10TopicId: null, // will be patched in background
+        active:       true,
+      },
+    });
+
+    // ── Step 5: Schedule BullMQ cron job ─────────────────────────
+    await scheduleAgentJob({ ...config, agentId }, hcsTopicId, false);
+    console.log(`[finalize-deploy] ✅ DB saved + BullMQ scheduled | Agent ${agentId} is live.`);
+
+    // ── Step 6: HCS-10 OpenConvAI registration — fire-and-forget ─
+    // This uses an inscription SDK that can take 30–90 seconds.
+    // Run it in the background so the user is redirected instantly.
+    setImmediate(() => {
+      registerAgentHCS10({
+        name:         config.name,
+        description:  `${config.strategyType} strategy for ${config.asset}`,
+        strategyType: config.strategyType,
+        accountId:    operatorId,
+        privateKey:   process.env.OPERATOR_PRIVATE_KEY!,
+      })
+        .then(async (hcs10Result) => {
+          const hcs10TopicId = hcs10Result.inboundTopicId;
+          console.log(`[finalize-deploy] ✅ HCS-10 registered (background): ${hcs10TopicId}`);
+          // Patch the agent record with the HCS-10 topic
+          await prisma.agent.update({
+            where: { id: agentId },
+            data:  { hcs10TopicId },
+          }).catch((e: Error) => console.warn('[finalize-deploy] HCS-10 patch failed:', e.message));
+        })
+        .catch((err: Error) => {
+          console.warn('[finalize-deploy] ⚠️  HCS-10 registration failed (non-fatal):', err.message);
+        });
+    });
+
+    res.status(201).json({
+      agentId,
+      name:        agent.name,
+      hcsTopicId,
+      hfsConfigId: hfsFileId,
+      hcs10TopicId: null, // populated in background
+      contractTxHash,
+      scheduled:   true,
+      links: {
+        agent:    `/agents/${agentId}`,
+        topic:    `https://hashscan.io/${network}/topic/${hcsTopicId}`,
+        file:     hfsFileId ? `https://hashscan.io/${network}/file/${hfsFileId}` : null,
+        contract: contractTxHash ? `https://hashscan.io/${network}/transaction/${contractTxHash}` : null,
+      },
+    });
+  } catch (err: unknown) {
+    console.error('[finalize-deploy] Error:', err);
+    const msg = err instanceof z.ZodError
+      ? err.errors.map(e => e.message).join(', ')
+      : (err as Error).message;
+    res.status(500).json({ error: msg });
   }
 });
 

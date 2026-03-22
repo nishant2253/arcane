@@ -9,7 +9,8 @@ import { LedgerId } from '@hashgraph/sdk'
 
 let dAppConnector: DAppConnector | null = null
 
-// Initialize once — call on app mount
+// Initialize once — kept alive across connect/disconnect cycles to avoid
+// "WalletConnect Core is already initialized" double-init warnings.
 export async function initWalletConnector() {
   if (dAppConnector) return dAppConnector
 
@@ -30,14 +31,30 @@ export async function initWalletConnector() {
     projectId,
     Object.values(HederaJsonRpcMethod),
     [HederaSessionEvent.ChainChanged, HederaSessionEvent.AccountsChanged],
-    [HederaChainId.Testnet] // chainId 296
+    [HederaChainId.Testnet]
   )
 
   await dAppConnector.init({ logger: 'fatal' })
   return dAppConnector
 }
 
-interface ConnectWalletResult {
+// Resolve a signer for a given accountId, retrying up to `maxAttempts` times
+// because DAppConnector populates signers asynchronously after session events.
+async function waitForSigner(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  connector: DAppConnector, accountId: string, maxAttempts = 10
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<any | null> {
+  for (let i = 0; i < maxAttempts; i++) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const signer = connector.signers.find((s: any) => s.getAccountId().toString() === accountId)
+    if (signer) return signer
+    await new Promise(r => setTimeout(r, 300))
+  }
+  return null
+}
+
+export interface ConnectWalletResult {
   accountId: string;
   evmAddress: string;
   walletName: string;
@@ -49,73 +66,100 @@ interface ConnectWalletResult {
   signer: any;
 }
 
-// Open the wallet selection modal
+// Silently restore an existing WalletConnect session — never opens a modal.
+// Returns null if no valid session or signer can be found.
+export async function rehydrateWallet(): Promise<ConnectWalletResult | null> {
+  try {
+    const connector = await initWalletConnector()
+    const existingSessions = connector.walletConnectClient?.session.getAll()
+    if (!existingSessions?.length) return null
+
+    const session = existingSessions[0]
+    const accountId = session.namespaces.hedera?.accounts[0]?.split(':')[2]
+    if (!accountId) return null
+
+    const signer = await waitForSigner(connector, accountId)
+    if (!signer) return null
+
+    return {
+      accountId,
+      evmAddress: accountIdToEvmAddress(accountId),
+      walletName: session.peer.metadata.name || 'WalletConnect',
+      connector,
+      session,
+      signer,
+    }
+  } catch {
+    return null
+  }
+}
+
+// Open the wallet selection modal for a brand-new connection.
 export async function connectWallet(): Promise<ConnectWalletResult> {
   const connector = await initWalletConnector()
 
-  // 1. If a session already exists, reuse it and don't open the modal!
-  const existingSessions = connector.walletConnectClient?.session.getAll()
-  if (existingSessions && existingSessions.length > 0) {
-    const session = existingSessions[0]
-    const accountId = session.namespaces.hedera?.accounts[0]?.split(':')[2]
-    if (accountId) {
-      const evmAddress = accountIdToEvmAddress(accountId)
-      const walletName = session.peer.metadata.name || 'WalletConnect'
-      // Get the signer — used to sign ALL user transactions
-      const signer = connector.signers.find(
-        (s: any) => s.getAccountId().toString() === accountId
-      )
-      return { accountId, evmAddress, walletName, connector, session, signer }
-    }
-  }
+  // 1. Silently reuse an existing session if one is available
+  const existing = await rehydrateWallet()
+  if (existing) return existing
 
-  // 2. Otherwise, wait for a new connection
+  // 2. No existing session — open the WalletConnect modal
   return new Promise<ConnectWalletResult>(async (resolve, reject) => {
     let checkInterval: NodeJS.Timeout
     let isResolving = false
 
-    const checkSession = (isFinalCheck = false) => {
+    const checkSession = async (isFinalCheck = false) => {
+      if (isResolving) return
+
       const sessions = connector.walletConnectClient?.session.getAll()
-      if (sessions && sessions.length > 0) {
-        isResolving = true
-        clearInterval(checkInterval)
-        
-        const session = sessions[0]
-        const accountId = session.namespaces.hedera?.accounts[0]?.split(':')[2]
-        if (!accountId) {
-          reject(new Error('No Hedera account in session'))
-          return
-        }
-        
-        const evmAddress = accountIdToEvmAddress(accountId)
-        const walletName = session.peer.metadata.name || 'WalletConnect'
-        
-        // Get the signer — used to sign ALL user transactions
-        const signer = connector.signers.find(
-          (s: any) => s.getAccountId().toString() === accountId
-        )
-        if (!signer) {
-          reject(new Error('No signer for account'))
-          return
-        }
-        
-        resolve({ accountId, evmAddress, walletName, connector, session, signer })
-      } else if (isFinalCheck && !isResolving) {
-        reject(new Error('No wallet session established. User closed modal.'))
+      if (!sessions?.length) {
+        if (isFinalCheck) reject(new Error('No wallet session established. User closed modal.'))
+        return
       }
+
+      const session = sessions[0]
+      const accountId = session.namespaces.hedera?.accounts[0]?.split(':')[2]
+      if (!accountId) {
+        reject(new Error('No Hedera account in session'))
+        return
+      }
+
+      // Signers may not be ready yet — wait instead of immediately rejecting
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let signer = connector.signers.find((s: any) => s.getAccountId().toString() === accountId)
+      if (!signer && isFinalCheck) {
+        // Give up to 3s on the final check for signers to populate
+        signer = await waitForSigner(connector, accountId)
+      }
+
+      if (!signer) {
+        // Not ready on intermediate poll — next tick will retry
+        return
+      }
+
+      isResolving = true
+      clearInterval(checkInterval)
+      resolve({
+        accountId,
+        evmAddress: accountIdToEvmAddress(accountId),
+        walletName: session.peer.metadata.name || 'WalletConnect',
+        connector,
+        session,
+        signer,
+      })
     }
 
-    // Subscribe to modal state to stop polling if closed
+    // Subscribe to modal close to trigger a final check
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const unsubscribe = connector.walletConnectModal.subscribeModal((state: any) => {
       if (!state.open && !isResolving) {
         clearInterval(checkInterval)
         unsubscribe()
+        // Give the SDK 800ms to settle after modal close, then do final check
         setTimeout(() => checkSession(true), 800)
       }
     })
 
-    // Poll every 500ms while the modal is open or connection is pending
+    // Poll while modal is open
     checkInterval = setInterval(() => checkSession(false), 500)
 
     try {
@@ -130,8 +174,12 @@ export async function connectWallet(): Promise<ConnectWalletResult> {
 
 export async function disconnectWallet() {
   if (!dAppConnector) return
-  await dAppConnector.disconnectAll()
-  dAppConnector = null
+  try {
+    await dAppConnector.disconnectAll()
+  } catch { /* best-effort */ }
+  // Intentionally keep dAppConnector alive — nulling it causes "WalletConnect Core is
+  // already initialized" warning on the next init() call because the WC Core singleton
+  // persists in localStorage even after disconnectAll().
 }
 
 // Convert Hedera account ID to EVM address for contract calls
@@ -141,7 +189,6 @@ export function accountIdToEvmAddress(accountId: string): string {
   const parts = accountId.split('.')
   if (parts.length !== 3) return '0x0000000000000000000000000000000000000000'
   const num = parseInt(parts[2], 10)
-  // Convert decimal to hex and pad to 40 chars, then add 0x
   const hex = num.toString(16).padStart(40, '0')
   return `0x${hex}`
 }

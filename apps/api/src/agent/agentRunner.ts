@@ -34,6 +34,7 @@ export interface AgentCycleResult {
   decision:     TradingDecision;
   hcsResult:    { sequenceNumber: string; consensusTimestamp: string; topicId: string };
   swapExecuted: boolean;
+  tradeResult:  { txHash?: string; fillPrice?: number; slippageBps?: number } | null;
   cycleMs:      number;
 }
 
@@ -43,6 +44,61 @@ export interface TradingDecision {
   reasoning:  string;
   price:      number;
   indicators: Record<string, number>;
+}
+
+// ── Technical indicator helpers ───────────────────────────────────
+
+const ASSET_SYMBOL_MAP: Record<string, string> = {
+  'HBAR/USDC': 'HBARUSDT',
+  'HBAR/USDT': 'HBARUSDT',
+  'HBAR/USD':  'HBARUSDT',
+  'BTC/USD':   'BTCUSDT',
+  'BTC/USDT':  'BTCUSDT',
+  'ETH/USD':   'ETHUSDT',
+  'ETH/USDT':  'ETHUSDT',
+};
+
+function assetToSymbol(asset: string): string {
+  const upper = asset.toUpperCase();
+  return ASSET_SYMBOL_MAP[upper]
+    ?? Object.entries(ASSET_SYMBOL_MAP).find(([k]) => upper.startsWith(k.split('/')[0]))?.[1]
+    ?? 'HBARUSDT';
+}
+
+async function fetchPriceHistory(asset: string, limit: number): Promise<number[]> {
+  const symbol  = assetToSymbol(asset);
+  const url     = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1h&limit=${limit}`;
+  const res     = await fetch(url);
+  if (!res.ok) throw new Error(`Binance API ${res.status}`);
+  const candles = await res.json() as unknown[][];
+  return candles.map(c => parseFloat(String(c[4]))); // close prices
+}
+
+/** Exponential Moving Average — seeds with SMA for the first `period` bars */
+function computeEMA(prices: number[], period: number): number {
+  if (prices.length < period) return prices[prices.length - 1];
+  const k   = 2 / (period + 1);
+  let   ema = prices.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < prices.length; i++) {
+    ema = prices[i] * k + ema * (1 - k);
+  }
+  return ema;
+}
+
+/** Relative Strength Index (Wilder's smoothing) */
+function computeRSI(prices: number[], period = 14): number {
+  if (prices.length < period + 1) return 50;
+  const recent = prices.slice(-(period + 1));
+  let gains = 0, losses = 0;
+  for (let i = 1; i < recent.length; i++) {
+    const Δ = recent[i] - recent[i - 1];
+    if (Δ > 0) gains  += Δ;
+    else        losses += Math.abs(Δ);
+  }
+  const avgGain = gains  / period;
+  const avgLoss = losses / period;
+  if (avgLoss === 0) return 100;
+  return parseFloat((100 - 100 / (1 + avgGain / avgLoss)).toFixed(2));
 }
 
 // ── runAgentCycle ─────────────────────────────────────────────────
@@ -124,30 +180,76 @@ export async function runAgentCycle(
 
   console.log(`[AgentRunner] Price: $${price.toFixed(6)}`);
 
+    // ── Step 2b: Compute technical indicators from price history ────
+  console.log('[AgentRunner] Step 2b: Computing technical indicators...');
+  let computedIndicators: Record<string, number> = { price };
+  try {
+    const neededBars = Math.max(
+      (agentConfig.indicators?.movingAverage?.period ?? 0) + 10,
+      (agentConfig.indicators?.rsi?.period ?? 14) + 10,
+      80
+    );
+    const priceHistory = await fetchPriceHistory(agentConfig.asset, neededBars);
+    const allPrices = [...priceHistory, price];
+
+    if (agentConfig.indicators?.movingAverage) {
+      const { type, period } = agentConfig.indicators.movingAverage;
+      const val = computeEMA(allPrices, period);
+      computedIndicators[`${type}_${period}`] = parseFloat(val.toFixed(6));
+      computedIndicators['price_vs_ma_pct'] = parseFloat(((price / val - 1) * 100).toFixed(3));
+    }
+    if (agentConfig.indicators?.rsi) {
+      const { period, overbought, oversold } = agentConfig.indicators.rsi;
+      computedIndicators[`RSI_${period}`] = computeRSI(allPrices, period);
+      computedIndicators['rsi_overbought'] = overbought;
+      computedIndicators['rsi_oversold']   = oversold;
+    }
+    if (agentConfig.indicators?.macd) {
+      const { fast, slow } = agentConfig.indicators.macd;
+      const emaFast = computeEMA(allPrices, fast);
+      const emaSlow = computeEMA(allPrices, slow);
+      computedIndicators['MACD_line'] = parseFloat((emaFast - emaSlow).toFixed(6));
+    }
+    console.log('[AgentRunner] Indicators:', JSON.stringify(computedIndicators));
+  } catch (err) {
+    console.warn('[AgentRunner] Indicator computation failed — using price only:', (err as Error).message);
+  }
+
   // ── Step 3: Gemini AI decision ────────────────────────────────
   console.log('[AgentRunner] Step 3: Generating AI trading decision...');
 
-  const decisionPrompt = `You are a systematic trading agent managing a position.
+  // Build an indicator summary string for readability in the prompt
+  const indicatorSummaryLines = Object.entries(computedIndicators)
+    .filter(([k]) => k !== 'price')
+    .map(([k, v]) => `  ${k}: ${v}`)
+    .join('\n');
+
+  const decisionPrompt = `You are a systematic algorithmic trading agent. Make a decisive BUY, SELL, or HOLD decision.
 
 Strategy: ${agentConfig.strategyType}
 Asset: ${agentConfig.asset}
 Timeframe: ${agentConfig.timeframe}
-Current Price: ${price}
-Indicators config: ${JSON.stringify(agentConfig.indicators)}
-Risk params: ${JSON.stringify(agentConfig.risk)}
+Current Price: $${price}
 
-Based on the ${agentConfig.strategyType} strategy logic for ${agentConfig.asset} at price ${price},
-decide whether to BUY, SELL, or HOLD.
+COMPUTED INDICATOR VALUES (use these for your decision):
+${indicatorSummaryLines || '  (only spot price available)'}
 
-Return ONLY valid JSON in this exact format:
+Risk config: stop-loss ${agentConfig.risk.stopLossPct}%, take-profit ${agentConfig.risk.takeProfitPct}%, max position ${agentConfig.risk.maxPositionSizePct}%
+
+Decision rules for ${agentConfig.strategyType}:
+- TREND_FOLLOW: BUY when price > MA and RSI not overbought; SELL when price < MA and RSI not oversold
+- MEAN_REVERT: BUY when RSI < oversold level; SELL when RSI > overbought level
+- BREAKOUT: BUY when price_vs_ma_pct > 1%; SELL when price_vs_ma_pct < -1%
+- MOMENTUM: BUY when RSI > 55 and rising; SELL when RSI < 45 and falling
+
+Apply the rules above with the actual computed values. Do NOT return HOLD just because an indicator value is unexpected — make the most informed decision you can from the data provided.
+
+Return ONLY valid JSON:
 {
   "signal": "BUY" | "SELL" | "HOLD",
   "confidence": <number 0-100>,
-  "reasoning": "<one sentence explanation>",
-  "indicators": {
-    "price": ${price},
-    "signal_strength": <0-100>
-  }
+  "reasoning": "<one sentence citing the actual indicator values>",
+  "indicators": ${JSON.stringify(computedIndicators)}
 }`;
 
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
@@ -167,7 +269,8 @@ Return ONLY valid JSON in this exact format:
     confidence: rawDecision.confidence as number,
     reasoning:  rawDecision.reasoning  as string,
     price,
-    indicators: rawDecision.indicators as Record<string, number> ?? { price },
+    // Prefer Gemini's returned indicators but merge with our computed ones so they're always present
+    indicators: { ...computedIndicators, ...(rawDecision.indicators as Record<string, number> ?? {}) },
   };
 
   console.log(`[AgentRunner] Decision: ${decision.signal} (confidence: ${decision.confidence}%) — ${decision.reasoning}`);
@@ -191,6 +294,7 @@ Return ONLY valid JSON in this exact format:
     price,
     indicators: decision.indicators,
     hederaClient: client,
+    dryRun,
   });
 
   const cycleMs = Date.now() - cycleStart;
@@ -206,9 +310,10 @@ Return ONLY valid JSON in this exact format:
 
   return { 
     decision, 
-    hcsResult: { ...hcsResult, topicId: hcsTopicId }, 
-    swapExecuted: !!tradeResult, 
-    cycleMs 
+    hcsResult:    { ...hcsResult, topicId: hcsTopicId }, 
+    swapExecuted: !!tradeResult,
+    tradeResult:  tradeResult ?? null,
+    cycleMs, 
   };
 }
 

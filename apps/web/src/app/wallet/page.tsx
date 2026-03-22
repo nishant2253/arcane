@@ -10,6 +10,7 @@ import {
   WalletIcon, CopyIcon, ExternalLinkIcon, TrendingUpIcon,
   ActivityIcon, BotIcon, BarChart3Icon,
 } from 'lucide-react';
+import { TxHistoryPanel } from '@/components/TxHistoryPanel';
 
 const NETWORK = process.env.NEXT_PUBLIC_HEDERA_NETWORK || 'testnet';
 const API_URL  = process.env.NEXT_PUBLIC_API_URL || '';
@@ -212,6 +213,11 @@ export default function WalletPage() {
             </table>
           </div>
         )}
+      </div>
+
+      {/* ── Transaction Audit Log ───────────────────────────────── */}
+      <div className="mb-6">
+        <TxHistoryPanel ownerId={accountId!} />
       </div>
 
       {/* ── Live HCS signals feed ────────────────────────────────── */}
