@@ -29,11 +29,23 @@ export interface Signal {
 }
 
 export interface AgentConfig {
+  agentId?:     string;
   name:         string;
   asset:        string;
   strategyType: string;
   timeframe:    string;
-  riskLevel:    string;
+  riskLevel?:   string;
+  indicators?: {
+    movingAverage?: { type: string; period: number };
+    rsi?:           { period: number; overbought: number; oversold: number };
+    macd?:          { fast: number; slow: number; signal: number };
+    bollingerBands?:{ period: number; stdDev: number };
+  };
+  risk?: {
+    stopLossPct:        number;
+    takeProfitPct:      number;
+    maxPositionSizePct: number;
+  };
   [key: string]: unknown;
 }
 

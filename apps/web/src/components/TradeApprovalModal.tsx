@@ -2,19 +2,24 @@
 
 import { useState } from 'react';
 import { ethers } from 'ethers';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { ZapIcon, XIcon, Loader2, ArrowRightIcon, ShieldCheckIcon } from 'lucide-react';
+import {
+  ContractExecuteTransaction,
+  ContractFunctionParameters,
+  ContractId,
+  Hbar,
+} from '@hashgraph/sdk';
 import { useWalletStore } from '@/stores/walletStore';
-import { getHashPackEthersSigner } from '@/lib/hashpackEthers';
 import { fetchBalances } from '@/lib/balance';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 const NETWORK  = process.env.NEXT_PUBLIC_HEDERA_NETWORK || 'testnet';
+const HASHIO   = 'https://testnet.hashio.io/api';
 
-const MOCK_DEX_ABI = [
-  "function sellHBARforUSDT(string agentId, uint256 minOut, string hcsSeq, string topicId) payable returns (uint256)",
-  "function buyHBARwithUSDT(string agentId, uint256 usdtIn, uint256 minHbarOut, string hcsSeq, string topicId) returns (uint256)",
-  "function getSwapQuote(string direction, uint256 amountIn) view returns (uint256, uint256, uint256)",
+// Read-only ABI — used only for getSwapQuote via JsonRpcProvider (no signing needed)
+const QUOTE_ABI = [
+  "function getSwapQuote(string direction, uint256 amountIn) view returns (uint256 amountOut, uint256 priceImpactBps, uint256 slippageBps)",
 ];
 
 interface TradeApprovalProps {
@@ -40,76 +45,71 @@ export function TradeApprovalModal({
 
   async function executeSwap() {
     if (!signer || !accountId) {
-       alert("Wallet not connected!");
-       return;
+      alert("Wallet not connected!");
+      return;
     }
     setExecuting(true);
     try {
-      const ethersSigner = await getHashPackEthersSigner(signer);
-      const mockDex = new ethers.Contract(
-        process.env.NEXT_PUBLIC_MOCK_DEX_ADDRESS!,
-        MOCK_DEX_ABI,
-        ethersSigner
-      );
+      // ── Step 1: Read-only quote via plain JSON-RPC — no wallet needed ──
+      // hashpackEthers bridge is incompatible with DAppSigner for write calls
+      // (DAppSigner expects a Hedera SDK Transaction, not a raw EVM tx object).
+      const provider  = new ethers.JsonRpcProvider(HASHIO);
+      const mockDexRO = new ethers.Contract(process.env.NEXT_PUBLIC_MOCK_DEX_ADDRESS!, QUOTE_ABI, provider);
 
-      let tx: any;
-      if (signal === 'SELL') {
-        const [minOut] = await mockDex.getSwapQuote("HBAR_TO_USDT", amount);
-        const slippageMin = (minOut * BigInt(995)) / BigInt(1000); // 0.5% slippage
+      const direction = signal === 'SELL' ? 'HBAR_TO_USDC' : 'USDC_TO_HBAR';
+      const [minOutRaw] = await mockDexRO.getSwapQuote(direction, amount);
+      const minOut      = BigInt(minOutRaw.toString());
+      const slippageMin = (minOut * 995n) / 1000n; // 0.5% tolerance
 
-        tx = await mockDex.sellHBARforUSDT(
-          agentId,
-          slippageMin,
-          hcsSequenceNum,
-          hcsTopicId,
-          {
-            value: amount,
-            gasLimit: 1000000,
-          }
-        );
-      } else {
-        const [minOut] = await mockDex.getSwapQuote("USDT_TO_HBAR", amount);
-        const slippageMin = (minOut * BigInt(995)) / BigInt(1000);
+      // ── Step 2: Write via ContractExecuteTransaction (HashPack-compatible) ──
+      // Same pattern as deployment: freezeWithSigner → executeWithSigner.
+      const contractId = ContractId.fromEvmAddress(0, 0, process.env.NEXT_PUBLIC_MOCK_DEX_ADDRESS!);
+      const fnParams   = new ContractFunctionParameters()
+        .addString(agentId)
+        .addString(direction)
+        .addUint256(amount.toString())
+        .addUint256(slippageMin.toString())
+        .addString(hcsSequenceNum)
+        .addString(hcsTopicId);
 
-        tx = await mockDex.buyHBARwithUSDT(
-          agentId,
-          amount,
-          slippageMin,
-          hcsSequenceNum,
-          hcsTopicId,
-          { gasLimit: 1000000 }
-        );
-      }
+      const contractTx = await new ContractExecuteTransaction()
+        .setContractId(contractId)
+        .setGas(300000)
+        .setFunction('executeSwap', fnParams)
+        .setMaxTransactionFee(new Hbar(2))
+        .freezeWithSigner(signer);
 
-      const receipt = await tx.wait();
-      setTxHash(receipt.hash);
+      const response = await contractTx.executeWithSigner(signer);
+      await response.getReceiptWithSigner(signer);
+      const txIdStr = response.transactionId?.toString() ?? '';
+      setTxHash(txIdStr);
 
-      // Record in audit log (fire-and-forget)
+      // ── Step 3: Audit log (fire-and-forget) ──
       fetch(`${API_URL}/api/transactions`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
-          ownerId:    accountId,
+          ownerId:     accountId,
           agentId,
-          type:       'TRADE_SWAP',
-          txId:       receipt.hash,
-          status:     'SUCCESS',
-          details:    { agentName: agentName ?? agentId, signal, price, confidence, hcsSequenceNum },
-          hashscanUrl: `https://hashscan.io/${NETWORK}/transaction/${receipt.hash}`,
+          type:        'TRADE_SWAP',
+          txId:        txIdStr,
+          status:      'SUCCESS',
+          details:     { agentName: agentName ?? agentId, signal, price, confidence, hcsSequenceNum },
+          hashscanUrl: `https://hashscan.io/${NETWORK}/transaction/${txIdStr}`,
         }),
       }).catch(() => {});
 
-      // Refresh balances immediately
+      // ── Step 4: Refresh balances ──
       const b = await fetchBalances(accountId);
       setBalances(b.hbar, b.tusdt);
-      
+
       setTimeout(() => onApprove(), 2000);
     } catch (err: any) {
       console.error("Swap failed:", err);
-      if (err?.message?.includes('User rejected')) {
-         alert("Swap cancelled: Transaction rejected in wallet.");
+      if (err?.message?.includes('User rejected') || err?.message?.includes('rejected')) {
+        alert("Swap cancelled: Transaction rejected in wallet.");
       } else {
-         alert(`Swap failed: ${err.message}`);
+        alert(`Swap failed: ${err.message}`);
       }
       onReject();
     } finally {

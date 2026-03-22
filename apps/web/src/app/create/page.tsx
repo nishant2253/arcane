@@ -94,7 +94,7 @@ function FundAgentModal({ agentId, agentAccountId, signer, accountId, onComplete
     setFunding(true);
     setError(null);
     try {
-      const tinybars = BigInt(Math.round(hbar * 1e8));
+      const tinybars = Math.round(hbar * 1e8);
       // Build a simple HBAR transfer from user → agentAccountId
       const transferTx = await new TransferTransaction()
         .addHbarTransfer(AccountId.fromString(accountId), Hbar.fromTinybars(-tinybars))

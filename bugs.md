@@ -72,12 +72,40 @@ This document tracks bugs encountered during the TradeAgent development lifecycl
 - `connectWallet()` calls `rehydrateWallet()` first before opening modal
 - `WalletConnect.tsx` `useEffect` calls `rehydrateWallet()` on mount; if it returns null, calls `disconnect()` to clear stale Zustand state
 
-### 14. MockDEX ABI Mismatch — `executeSwap` Function Not Found
-**Symptom:** AUTO mode trade failed with "function not found" or silent revert on MockDEX calls.
-**Root Cause:** `tradeExecutor.ts` was calling `executeSwap(agentId, direction, amountIn, ...)` which does not exist in `MockDEX.sol`. The actual functions are `sellHBARforUSDT(...)` and `buyHBARwithUSDT(...)`. Direction strings were also wrong (`USDC_TO_HBAR` vs `USDT_TO_HBAR`).
-**Resolution:** Updated `MOCK_DEX_ABI` in `tradeExecutor.ts` to use the correct function signatures. Updated direction strings to `HBAR_TO_USDT` / `USDT_TO_HBAR`. Separated execution into two conditional paths using the correct function per trade direction.
+### 14. MockDEX Direction Strings and Function Name Wrong in Both Frontend and Backend
+**Symptom:** On-chain revert: `"Invalid direction: use HBAR_TO_USDC or USDC_TO_HBAR"` when triggering a manual trade via the `TradeApprovalModal`. Auto mode trades also silently failed.
+**Root Cause (two layers):**
+1. The deployed `MockDEX.sol` uses **one** function: `executeSwap(agentId, direction, amountIn, minAmountOut, hcsSeq, topicId)`. Both `TradeApprovalModal.tsx` and `tradeExecutor.ts` were calling non-existent `sellHBARforUSDT` / `buyHBARwithUSDT` functions left over from an earlier draft of the contract.
+2. Direction strings were `"HBAR_TO_USDT"` / `"USDT_TO_HBAR"`. The deployed contract only accepts `"HBAR_TO_USDC"` / `"USDC_TO_HBAR"`.
+**Resolution:**
+- `TradeApprovalModal.tsx`: replaced two-branch `sellHBARforUSDT`/`buyHBARwithUSDT` calls with a single `executeSwap(agentId, direction, amountIn, minAmountOut, hcsSeq, topicId)` call.
+- `tradeExecutor.ts`: same — replaced two-branch logic with single `executeSwap` call.
+- Direction strings corrected to `"HBAR_TO_USDC"` (SELL) and `"USDC_TO_HBAR"` (BUY) in both files.
+- `MOCK_DEX_ABI` simplified to the single `executeSwap` entry plus `getSwapQuote` and `SwapExecuted` event.
 
 ### 15. TypeScript: `bigint` Not Assignable to `Hbar.fromTinybars` Parameter
 **Symptom:** API server crashed with `TSError: TS2345: Argument of type 'bigint' is not assignable to parameter of type 'string | number | Long | BigNumber'` on the `/withdraw` endpoint.
 **Root Cause:** `Hbar.fromTinybars()` from `@hashgraph/sdk` does not accept native `bigint` — it expects `string`, `number`, `Long`, or `BigNumber`.
 **Resolution:** Convert `withdrawAmount` to string via `.toString()` before passing to `Hbar.fromTinybars()`. Use string prefix `"-"` for the debit side.
+
+### 16. 24 TypeScript Errors in `create/page.tsx` — `AgentConfig` Index Signature Widens All Properties to `{}`
+**Symptom:** 24 linter errors across `create/page.tsx`: `Property 'rsi' does not exist on type '{}'`, `Type '{}' is not assignable to type 'string'`, `Argument of type 'bigint' is not assignable to parameter of type 'string | number | BigNumber | Long'`.
+**Root Cause (two layers):**
+1. `AgentConfig` in `agentStore.ts` declared `[key: string]: unknown` but had no explicit `indicators`, `risk`, or `agentId` fields. In older TypeScript, `NonNullable<unknown>` resolves to `{}`. So `config.indicators ?? {}` gave `ind` the type `{}` (no known properties), and `config.agentId || crypto.randomUUID()` gave `agentId` the type `{}` (not `string`).
+2. `BigInt(Math.round(hbar * 1e8))` produced native `bigint`, which `Hbar.fromTinybars()` does not accept.
+**Resolution:**
+- Added explicit optional typed fields (`agentId?: string`, `indicators?: {...}`, `risk?: {...}`) to `AgentConfig` in `agentStore.ts`. All new types are subtypes of `unknown`, so the index signature remains valid.
+- Changed `BigInt(Math.round(...))` → `Math.round(...)` (plain `number`) in `FundAgentModal`.
+
+### 17. `transaction._makeTransactionBody is not a function` on Manual Trade Approval
+**Symptom:** Clicking "Approve Swap" in `TradeApprovalModal` threw `TypeError: transaction._makeTransactionBody is not a function` from inside `DAppSigner.signTransaction`, preventing the trade from executing.
+**Root Cause:** `TradeApprovalModal.tsx` used `getHashPackEthersSigner` (the `hashpackEthers.ts` bridge) to build an ethers signer, then called `mockDex.executeSwap()` through it. Ethers passes a raw EVM transaction object `{ to, data, gasLimit }` to `signer.sendTransaction()`, which forwarded it to `hederaSigner.signTransaction(tx)`. But `DAppSigner` from `@hashgraph/hedera-wallet-connect` internally calls `transactionToTransactionBody(tx)` which requires a Hedera SDK `Transaction` instance (one that has `_makeTransactionBody`). A plain EVM object has no such method.
+**Resolution:** Replaced the entire ethers write path with the native Hedera SDK pattern:
+- `getSwapQuote` (read-only): still called via `ethers.JsonRpcProvider` + `ethers.Contract` — no signing needed.
+- `executeSwap` (write): replaced with `ContractExecuteTransaction` + `ContractFunctionParameters` using `freezeWithSigner(signer).executeWithSigner(signer)` — identical to the deployment pattern.
+- Removed `getHashPackEthersSigner` import from `TradeApprovalModal.tsx` entirely.
+
+### 18. TypeScript `TS6059` — Monorepo Packages Outside `rootDir`
+**Symptom:** Linter reported `File '.../packages/hedera/src/index.ts' is not under 'rootDir' '.../apps/api/src'` on every file that imported `@tradeagent/hedera` or `@tradeagent/shared` in the API.
+**Root Cause:** `apps/api/tsconfig.json` set `rootDir: "src"`, but `paths` mapped `@tradeagent/hedera` and `@tradeagent/shared` to files in `packages/*/src`, which is outside `apps/api/src`. When TypeScript resolved these aliases it included the package files in the compilation, violating the `rootDir` constraint.
+**Resolution:** Changed `rootDir: "src"` → `rootDir: "../.."` (workspace root) and added `packages/shared/src/**/*` and `packages/hedera/src/**/*` to the `include` array in `apps/api/tsconfig.json`. The `outDir: "dist"` still functions correctly; `ts-node` dev mode is unaffected.

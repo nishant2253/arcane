@@ -17,13 +17,20 @@ This document tracks major feature enhancements and integrations for the TradeAg
 ---
 
 ## 2. Native HSCS Calls via ContractExecuteTransaction
-**Status:** ✅ Complete (replaced ethers bridge)
+**Status:** ✅ Complete (replaced ethers bridge across all user-signed contract calls)
 
-The original ethers.js signer bridge (`hashpackEthers.ts`) was removed. All smart contract calls now use:
+The `hashpackEthers.ts` ethers signer bridge is permanently incompatible with `DAppSigner` for write calls and has been abandoned for all on-chain write operations. All user-signed smart contract calls now use:
 - `ContractExecuteTransaction` + `ContractFunctionParameters` from `@hashgraph/sdk`
-- `ContractId.fromEvmAddress(0, 0, address)` to target `AgentRegistry`
-- Gas limit: 800,000 | Max fee: 5 HBAR
+- `ContractId.fromEvmAddress(0, 0, address)` to resolve EVM address → Hedera contract ID
 - Fully compatible with `freezeWithSigner(signer).executeWithSigner(signer)` pattern
+
+**Applies to all user-signed write calls:**
+| Call | Location | Gas | Max Fee |
+|------|----------|-----|---------|
+| `AgentRegistry.registerAgent()` (deploy TX3) | `create/page.tsx` | 800,000 | 5 HBAR |
+| `MockDEX.executeSwap()` (manual trade) | `TradeApprovalModal.tsx` | 300,000 | 2 HBAR |
+
+**Read-only calls** (`getSwapQuote`) continue to use `ethers.JsonRpcProvider` + `ethers.Contract` directly against Hashio — no wallet needed for reads.
 
 ---
 

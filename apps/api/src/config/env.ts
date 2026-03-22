@@ -89,7 +89,7 @@ export const env = {
 
   // Gemini AI
   geminiApiKey: process.env.GEMINI_API_KEY || '',
-  geminiModel: optionalEnv('GEMINI_MODEL', 'gemini-1.5-flash'),
+  geminiModel: optionalEnv('GEMINI_MODEL', 'gemini-2.5-flash'),
 
   // Supabase
   supabaseUrl: process.env.SUPABASE_URL || '',

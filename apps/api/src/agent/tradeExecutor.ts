@@ -3,14 +3,14 @@ import { submitAgentDecision } from "@tradeagent/hedera";
 import prisma from "../db/prisma";
 
 // ■■ MockDEX ABI (only the functions we call) ■■■■■■■■■■■■■
+// ■■ MockDEX ABI — matches deployed MockDEX.sol exactly ■■■■■■
 const MOCK_DEX_ABI = [
   // Read
   "function getSwapQuote(string direction, uint256 amountIn) view returns (uint256 amountOut, uint256 priceImpactBps, uint256 slippageBps)",
-  "function getAgentSwaps(string agentId) view returns (tuple(address trader, string agentId, string direction, uint256 amountIn, uint256 amountOut, uint256 hbarPriceUSDCents, uint256 slippageBps, uint256 timestamp, string hcsSequenceNum, string hcsTopicId)[])",
-  "function getPoolState() view returns (uint256 hbar, uint256 usdt, uint256 spotPrice)",
-  // Write — two separate functions matching MockDEX.sol
-  "function sellHBARforUSDT(string agentId, uint256 minUSDTOut, string hcsSequenceNum, string hcsTopicId) external payable returns (uint256)",
-  "function buyHBARwithUSDT(string agentId, uint256 usdtIn, uint256 minHBAROut, string hcsSequenceNum, string hcsTopicId) external returns (uint256)",
+  "function getAgentSwaps(string agentId) view returns (tuple(address trader, string agentId, string direction, uint256 amountIn, uint256 amountOut, uint256 priceUSDCents, uint256 slippageBps, uint256 timestamp, string hcsSequenceNum, string hcsTopicId)[])",
+  "function getPoolState() view returns (uint256 hbar, uint256 usdc, uint256 spotPrice)",
+  // Write — single executeSwap function; directions: "HBAR_TO_USDC" or "USDC_TO_HBAR"
+  "function executeSwap(string agentId, string direction, uint256 amountIn, uint256 minAmountOut, string hcsSequenceNum, string hcsTopicId) external returns (uint256)",
   // Events
   "event SwapExecuted(string indexed agentId, string direction, uint256 amountIn, uint256 amountOut, uint256 slippageBps, string hcsSequenceNum, string hcsTopicId, uint256 timestamp)",
 ];
@@ -100,8 +100,8 @@ export async function executeTradeSignal(
   // STEP 2 — EXECUTE TRADE
   // Route to MockDEX (testnet) or SaucerSwap (mainnet)
   // ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
-  // Match MockDEX.sol direction strings (HBAR_TO_USDT / USDT_TO_HBAR)
-  const direction = signal === "BUY" ? "USDT_TO_HBAR" : "HBAR_TO_USDT";
+  // MockDEX.sol direction strings: sell HBAR → "HBAR_TO_USDC"; buy HBAR → "USDC_TO_HBAR"
+  const direction = signal === "BUY" ? "USDC_TO_HBAR" : "HBAR_TO_USDC";
   const isTestnet = process.env.HEDERA_NETWORK === "testnet";
 
   console.log(`[Trade] Direction: ${direction}`);
@@ -197,36 +197,20 @@ async function executeViaMockDEX(
   // Step 3: Calculate minimum output with 0.5% tolerance
   const minOut = expectedOut * 995n / 1000n;
 
-  // Step 4: Execute the swap via the correct MockDEX.sol function
+  // Step 4: Execute the swap — single executeSwap entry point for both directions
   console.log(`[MockDEX] Executing ${direction} swap (HCS seq #${hcsSequenceNum})...`);
-  let tx: any;
-  if (direction === "HBAR_TO_USDT") {
-    // SELL path: caller sends HBAR as msg.value, receives tUSDT
-    tx = await mockDex.sellHBARforUSDT(
-      params.agentId,
-      minOut,
-      hcsSequenceNum,
-      params.hcsTopicId,
-      {
-        value:    params.amountTinybars,
-        gasLimit: 300000,
-        gasPrice: ethers.parseUnits("960", "gwei"),
-      }
-    );
-  } else {
-    // BUY path: caller must have approved tUSDT spend; receives HBAR
-    tx = await mockDex.buyHBARwithUSDT(
-      params.agentId,
-      params.amountTinybars, // usdtIn (reusing field for micro-USDT in buy case)
-      minOut,
-      hcsSequenceNum,
-      params.hcsTopicId,
-      {
-        gasLimit: 300000,
-        gasPrice: ethers.parseUnits("960", "gwei"),
-      }
-    );
-  }
+  const tx = await mockDex.executeSwap(
+    params.agentId,
+    direction,
+    params.amountTinybars,
+    minOut,
+    hcsSequenceNum,
+    params.hcsTopicId,
+    {
+      gasLimit: 300000,
+      gasPrice: ethers.parseUnits("960", "gwei"),
+    }
+  );
   console.log(`[MockDEX] Transaction submitted: ${tx.hash}`);
 
   const receipt = await tx.wait();
@@ -270,7 +254,7 @@ async function executeViaSaucerSwap(
   });
 
   const llm = new ChatGoogleGenerativeAI({
-    model: "gemini-1.5-flash",
+    model: "gemini-2.5-flash",
     apiKey: process.env.GEMINI_API_KEY,
   });
 

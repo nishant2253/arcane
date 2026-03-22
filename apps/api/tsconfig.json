@@ -2,7 +2,7 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "outDir":       "dist",
-    "rootDir":      "src",
+    "rootDir":      "../..",
     "skipLibCheck": true,
     "baseUrl": ".",
     "paths": {
@@ -10,6 +10,10 @@
       "@tradeagent/hedera": ["../../packages/hedera/src"]
     }
   },
-  "include": ["src/**/*"],
+  "include": [
+    "src/**/*",
+    "../../packages/shared/src/**/*",
+    "../../packages/hedera/src/**/*"
+  ],
   "exclude": ["node_modules", "dist"]
 }
