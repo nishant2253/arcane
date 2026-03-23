@@ -1,21 +1,76 @@
 'use client';
 
-import { useEffect, useState, use } from 'react';
+import { useEffect, useState, use, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
 import {
   ArrowLeftIcon, ExternalLinkIcon, ShieldCheckIcon,
-  TrendingUpIcon, TrendingDownIcon, ActivityIcon, BarChart2Icon,
-  RefreshCwIcon, AlertCircleIcon,
+  TrendingUpIcon, ActivityIcon, BarChart2Icon,
+  RefreshCwIcon, AlertCircleIcon, PlayIcon, CandlestickChartIcon,
 } from 'lucide-react';
 import {
-  AreaChart, Area, BarChart, Bar,
+  AreaChart, Area, BarChart, Bar, ComposedChart,
   XAxis, YAxis, Tooltip, ResponsiveContainer,
-  CartesianGrid, ReferenceLine, PieChart, Pie, Cell, Legend,
+  CartesianGrid, ReferenceLine, PieChart, Pie, Cell,
 } from 'recharts';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 const NETWORK  = process.env.NEXT_PUBLIC_HEDERA_NETWORK || 'testnet';
+
+// ── OHLCV types & candlestick helpers ──────────────────────────────
+interface OHLCVBar {
+  time:  number;
+  open:  number;
+  high:  number;
+  low:   number;
+  close: number;
+  label: string;
+}
+
+// Custom recharts shape: renders one candlestick candle.
+// Bar dataKey="high" with baseValue=dataset-min so recharts gives us the
+// full vertical span (high → baseValue) as y / height in pixel coords.
+const CandleShape = (props: any) => {
+  const { x, y, width, height, payload, background } = props;
+  if (!payload || !height || height <= 0) return null;
+
+  const { open, high, low, close } = payload as OHLCVBar;
+  const priceSpan = high - low;
+  if (priceSpan === 0) return null;
+
+  // recharts: y = top pixel (price = high), y+height = bottom pixel (price = baseValue)
+  // We need to map from high..baseValue, but we only have high..low in payload.
+  // Use the bar's own high-to-low span to compute the sub-pixel positions.
+  const fullSpanPx = height;                       // pixels for (high - baseValue)
+  const baseValue  = payload._baseValue ?? low;
+  const totalPriceRange = high - baseValue;
+  if (totalPriceRange === 0) return null;
+
+  const scale = fullSpanPx / totalPriceRange;       // px per price unit
+
+  const yHigh  = y;
+  const yOpen  = y + (high - open)  * scale;
+  const yClose = y + (high - close) * scale;
+  const yLow   = y + (high - low)   * scale;       // bottom of wick
+
+  const isUp    = close >= open;
+  const color   = isUp ? '#22C55E' : '#EF4444';
+  const bodyTop = Math.min(yOpen, yClose);
+  const bodyBot = Math.max(yOpen, yClose);
+  const bodyH   = Math.max(1.5, bodyBot - bodyTop);
+  const cx      = x + width / 2;
+  const bx      = x + width * 0.15;
+  const bw      = Math.max(2, width * 0.7);
+
+  return (
+    <g>
+      <line x1={cx} y1={yHigh} x2={cx} y2={bodyTop}  stroke={color} strokeWidth={1.5} />
+      <line x1={cx} y1={bodyBot} x2={cx} y2={yLow}  stroke={color} strokeWidth={1.5} />
+      <rect x={bx} y={bodyTop} width={bw} height={bodyH}
+        fill={isUp ? 'transparent' : color} stroke={color} strokeWidth={1.5} rx={1} />
+    </g>
+  );
+};
 
 interface EquityPoint    { timestamp: number; equity: number }
 interface TradePair {
@@ -49,11 +104,11 @@ function MetricCard({
       whileHover={{ scale: 1.02 }}
       className="bg-[#0D1B2A] rounded-xl p-4 border border-gray-800/60"
     >
-      <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">{label}</p>
+      <p className="text-[10px] text-gray-400 uppercase tracking-widest mb-1">{label}</p>
       <p className="text-2xl font-bold font-mono" style={{ color }}>
         {value ?? '—'}
       </p>
-      <p className="text-[11px] text-gray-600 mt-1">{subtext}</p>
+      <p className="text-[11px] text-gray-400 mt-1">{subtext}</p>
     </motion.div>
   );
 }
@@ -92,11 +147,15 @@ function DashboardSkeleton() {
 // ── Main Dashboard ──────────────────────────────────────────────────
 export default function AgentDashboard({ params }: { params: Promise<{ agentId: string }> }) {
   const { agentId } = use(params);
-  const [perf,    setPerf]    = useState<AgentPerf | null>(null);
-  const [history, setHistory] = useState<HCSEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState<string | null>(null);
+  const [perf,       setPerf]       = useState<AgentPerf | null>(null);
+  const [history,    setHistory]    = useState<HCSEntry[]>([]);
+  const [ohlcv,      setOhlcv]      = useState<OHLCVBar[]>([]);
+  const [ohlcvDays,  setOhlcvDays]  = useState<7 | 14 | 30>(7);
+  const [loading,    setLoading]    = useState(true);
+  const [ohlcvLoading, setOhlcvLoading] = useState(true);
+  const [error,      setError]      = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+  const [triggering,  setTriggering] = useState(false);
 
   async function loadData() {
     try {
@@ -120,11 +179,54 @@ export default function AgentDashboard({ params }: { params: Promise<{ agentId: 
     }
   }
 
+  const loadOhlcv = useCallback(async (days: 7 | 14 | 30) => {
+    setOhlcvLoading(true);
+    try {
+      const url = `https://api.coingecko.com/api/v3/coins/hedera-hashgraph/ohlc?vs_currency=usd&days=${days}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (!res.ok) throw new Error('CoinGecko unavailable');
+      const raw: number[][] = await res.json();
+      const bars: OHLCVBar[] = raw.map(([t, o, h, l, c]) => ({
+        time: t,
+        open: o, high: h, low: l, close: c,
+        label: new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      }));
+      setOhlcv(bars);
+    } catch {
+      setOhlcv([]);
+    } finally {
+      setOhlcvLoading(false);
+    }
+  }, []);
+
+  // Trigger one manual agent cycle (dry-run = false for live signals)
+  const triggerCycle = async () => {
+    setTriggering(true);
+    try {
+      const res = await fetch(`${API_URL}/api/agents/${agentId}/run`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ dryRun: false }),
+      });
+      if (res.ok) {
+        await new Promise(r => setTimeout(r, 2000));
+        await loadData();
+      }
+    } catch { /* ignore */ } finally {
+      setTriggering(false);
+    }
+  };
+
   useEffect(() => {
     loadData();
+    loadOhlcv(ohlcvDays);
     const interval = setInterval(loadData, 30_000);
     return () => clearInterval(interval);
   }, [agentId]);
+
+  useEffect(() => {
+    loadOhlcv(ohlcvDays);
+  }, [ohlcvDays, loadOhlcv]);
 
   if (loading) return <DashboardSkeleton />;
 
@@ -164,6 +266,10 @@ export default function AgentDashboard({ params }: { params: Promise<{ agentId: 
     signal: t.entrySignal.signal,
   }));
 
+  // OHLCV candlestick prep: add _baseValue so CandleShape can compute pixel ratios
+  const ohlcvBaseValue = ohlcv.length > 0 ? Math.min(...ohlcv.map(b => b.low)) * 0.998 : 0;
+  const ohlcvCandleData = ohlcv.map(b => ({ ...b, _baseValue: ohlcvBaseValue }));
+
   return (
     <div className="min-h-screen bg-[#0A0A0F] text-white">
       {/* Header */}
@@ -184,7 +290,7 @@ export default function AgentDashboard({ params }: { params: Promise<{ agentId: 
         </div>
         <div className="flex items-center gap-3">
           {lastRefresh && (
-            <span className="text-[10px] text-gray-600">
+            <span className="text-[10px] text-gray-400">
               Updated {lastRefresh.toLocaleTimeString()}
             </span>
           )}
@@ -205,7 +311,7 @@ export default function AgentDashboard({ params }: { params: Promise<{ agentId: 
           <span className="text-sm text-gray-300">
             All metrics sourced from{' '}
             <b className="text-[#00A9BA]">Hedera Mirror Node</b> — cryptographically verifiable.{' '}
-            <span className="text-gray-500">{perf.totalHCSMsgs} HCS messages on topic {perf.hcsTopicId}</span>
+            <span className="text-gray-400">{perf.totalHCSMsgs} HCS messages on topic {perf.hcsTopicId}</span>
           </span>
           <a
             href={`https://hashscan.io/${NETWORK}/topic/${perf.hcsTopicId}`}
@@ -270,6 +376,98 @@ export default function AgentDashboard({ params }: { params: Promise<{ agentId: 
           />
         </div>
 
+        {/* ── HBAR/USD Candlestick Price Chart ────────────────────── */}
+        <div className="bg-[#0D1B2A] rounded-xl p-5 border border-gray-800/60">
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <CandlestickChartIcon className="w-4 h-4 text-[#F59E0B]" />
+              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">
+                HBAR / USD Price Chart
+              </h3>
+            </div>
+            <div className="flex items-center gap-2">
+              {([7, 14, 30] as const).map(d => (
+                <button
+                  key={d}
+                  onClick={() => setOhlcvDays(d)}
+                  className={`text-[10px] px-2 py-1 rounded transition-colors ${
+                    ohlcvDays === d
+                      ? 'bg-[#F59E0B]/20 text-[#F59E0B] border border-[#F59E0B]/40'
+                      : 'text-gray-400 border border-gray-700/40 hover:border-gray-600'
+                  }`}
+                >
+                  {d}D
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {ohlcvLoading ? (
+            <div className="h-[200px] flex items-center justify-center">
+              <div className="w-6 h-6 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: '#F59E0B', borderTopColor: 'transparent' }} />
+            </div>
+          ) : ohlcv.length === 0 ? (
+            <div className="h-[200px] flex items-center justify-center text-gray-400 text-sm">
+              Price data unavailable (CoinGecko rate-limited). Refresh in a moment.
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={200}>
+              <ComposedChart data={ohlcvCandleData} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" />
+                <XAxis
+                  dataKey="label"
+                  stroke="#374151"
+                  tick={{ fontSize: 9, fill: '#6B7280' }}
+                  tickLine={false}
+                  interval={Math.floor(ohlcv.length / 6)}
+                />
+                <YAxis
+                  domain={[ohlcvBaseValue, 'auto']}
+                  stroke="#374151"
+                  tick={{ fontSize: 9, fill: '#6B7280' }}
+                  tickLine={false}
+                  tickFormatter={(v: number) => `$${v.toFixed(4)}`}
+                  width={56}
+                />
+                <Tooltip
+                  contentStyle={{ background: '#0D1B2A', border: '1px solid #1E293B', borderRadius: 8, fontSize: 11 }}
+                  formatter={(v: number, name: string, item: any) => {
+                    const d = item?.payload as OHLCVBar;
+                    if (!d) return [v.toFixed(6), name];
+                    return [
+                      `O:$${d.open.toFixed(5)}  H:$${d.high.toFixed(5)}  L:$${d.low.toFixed(5)}  C:$${d.close.toFixed(5)}`,
+                      'OHLC',
+                    ];
+                  }}
+                  labelFormatter={(label) => `${label}`}
+                />
+                <Bar
+                  dataKey="high"
+                  shape={<CandleShape />}
+                  isAnimationActive={false}
+                  minPointSize={1}
+                  baseValue={ohlcvBaseValue}
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          )}
+
+          {ohlcv.length > 0 && (
+            <div className="flex items-center gap-4 mt-2 text-[10px] text-gray-400">
+              <span>
+                Latest: <strong className="text-white">${ohlcv[ohlcv.length - 1]?.close.toFixed(5)}</strong>
+              </span>
+              <span>
+                24h High: <strong className="text-green-400">${Math.max(...ohlcv.slice(-6).map(b => b.high)).toFixed(5)}</strong>
+              </span>
+              <span>
+                24h Low: <strong className="text-red-400">${Math.min(...ohlcv.slice(-6).map(b => b.low)).toFixed(5)}</strong>
+              </span>
+              <span className="ml-auto text-gray-500">via CoinGecko</span>
+            </div>
+          )}
+        </div>
+
         {/* Charts Row */}
         <div className="grid grid-cols-3 gap-4">
           {/* Equity Curve — 2/3 width */}
@@ -278,7 +476,7 @@ export default function AgentDashboard({ params }: { params: Promise<{ agentId: 
               <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">
                 Equity Curve
               </h3>
-              <span className="text-xs text-gray-600">Indexed to 100</span>
+              <span className="text-xs text-gray-400">Indexed to 100</span>
             </div>
             {eqData.length > 1 ? (
               <ResponsiveContainer width="100%" height={220}>
@@ -317,7 +515,7 @@ export default function AgentDashboard({ params }: { params: Promise<{ agentId: 
                 </AreaChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-[220px] flex items-center justify-center text-gray-600 text-sm">
+              <div className="h-[220px] flex items-center justify-center text-gray-400 text-sm">
                 Not enough trade data yet. Run trade cycles to build the equity curve.
               </div>
             )}
@@ -384,25 +582,72 @@ export default function AgentDashboard({ params }: { params: Promise<{ agentId: 
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-[180px] flex items-center justify-center text-gray-600 text-sm">
+              <div className="h-[180px] flex items-center justify-center text-gray-400 text-sm">
                 No completed trade pairs yet.
               </div>
             )}
           </div>
 
           {/* Live HCS Decision Feed */}
-          <div className="bg-[#0D1B2A] rounded-xl p-5 border border-gray-800/60">
-            <div className="flex items-center justify-between mb-4">
+          <div className="bg-[#0D1B2A] rounded-xl p-5 border border-gray-800/60 flex flex-col">
+            <div className="flex items-center justify-between mb-3">
               <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">
                 Live HCS Decision Feed
               </h3>
-              <span className="text-[10px] text-[#00A9BA] font-mono">aBFT timestamped</span>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-[#00A9BA] font-mono">aBFT timestamped</span>
+                {history.length > 0 && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                )}
+              </div>
             </div>
-            <div className="space-y-1.5 max-h-[180px] overflow-y-auto pr-1 scrollbar-thin">
-              {history.length === 0 ? (
-                <p className="text-gray-600 text-sm">No HCS messages yet.</p>
-              ) : (
-                history.map((msg, i) => (
+
+            {history.length === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center gap-3 py-4">
+                <div className="w-10 h-10 rounded-full flex items-center justify-center"
+                  style={{ background: 'rgba(0,169,186,0.08)', border: '1px solid rgba(0,169,186,0.2)' }}>
+                  <ActivityIcon className="w-5 h-5 text-[#00A9BA]" />
+                </div>
+                <div className="text-center">
+                  <p className="text-xs text-gray-300 font-semibold mb-1">No HCS signals yet</p>
+                  <p className="text-[10px] text-gray-500 leading-relaxed">
+                    Run the first agent cycle to generate<br />a decision and write it to Hedera.
+                  </p>
+                </div>
+                <button
+                  onClick={triggerCycle}
+                  disabled={triggering}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all disabled:opacity-50"
+                  style={{
+                    background: 'linear-gradient(135deg,#00A9BA,#1565C0)',
+                    color: '#fff',
+                    boxShadow: '0 0 12px rgba(0,169,186,0.25)',
+                  }}
+                >
+                  {triggering ? (
+                    <>
+                      <div className="w-3 h-3 rounded-full border border-t-transparent animate-spin" style={{ borderColor: '#fff', borderTopColor: 'transparent' }} />
+                      Running…
+                    </>
+                  ) : (
+                    <>
+                      <PlayIcon className="w-3 h-3" />
+                      Run Agent Cycle
+                    </>
+                  )}
+                </button>
+                <a
+                  href={`https://hashscan.io/${NETWORK}/topic/${perf.hcsTopicId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[10px] text-[#00A9BA] hover:underline flex items-center gap-1"
+                >
+                  Verify topic on HashScan <ExternalLinkIcon className="w-2.5 h-2.5" />
+                </a>
+              </div>
+            ) : (
+              <div className="space-y-1.5 max-h-[180px] overflow-y-auto pr-1 scrollbar-thin">
+                {history.map((msg, i) => (
                   <div
                     key={i}
                     className="flex items-center gap-2.5 p-2 rounded-lg bg-[#0A1628] hover:bg-[#0D2137] transition-colors"
@@ -411,7 +656,7 @@ export default function AgentDashboard({ params }: { params: Promise<{ agentId: 
                     <span className="text-[11px] text-gray-400 font-mono flex-1">
                       ${(msg.decision?.price ?? 0).toFixed(4)}
                     </span>
-                    <span className="text-[10px] text-gray-500">
+                    <span className="text-[10px] text-gray-400">
                       {msg.decision?.confidence ?? 0}%
                     </span>
                     <a
@@ -423,9 +668,9 @@ export default function AgentDashboard({ params }: { params: Promise<{ agentId: 
                       #{msg.seq}
                     </a>
                   </div>
-                ))
-              )}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -435,10 +680,10 @@ export default function AgentDashboard({ params }: { params: Promise<{ agentId: 
             <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">
               Trade History (last 20)
             </h3>
-            <span className="text-[10px] text-gray-600">Entry → Exit → P&amp;L</span>
+            <span className="text-[10px] text-gray-400">Entry → Exit → P&amp;L</span>
           </div>
           {perf.recentTrades.length === 0 ? (
-            <div className="px-5 py-8 text-center text-gray-600 text-sm">
+            <div className="px-5 py-8 text-center text-gray-400 text-sm">
               No closed trade pairs yet. Trade pairs are formed when two consecutive BUY/SELL signals appear.
             </div>
           ) : (
@@ -446,11 +691,11 @@ export default function AgentDashboard({ params }: { params: Promise<{ agentId: 
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-gray-800/40">
-                    <th className="text-left px-5 py-2.5 text-gray-500 font-medium">Type</th>
-                    <th className="text-right px-5 py-2.5 text-gray-500 font-medium">Entry Price</th>
-                    <th className="text-right px-5 py-2.5 text-gray-500 font-medium">Exit Price</th>
-                    <th className="text-right px-5 py-2.5 text-gray-500 font-medium">P&amp;L</th>
-                    <th className="text-right px-5 py-2.5 text-gray-500 font-medium">Confidence</th>
+                    <th className="text-left px-5 py-2.5 text-gray-400 font-medium">Type</th>
+                    <th className="text-right px-5 py-2.5 text-gray-400 font-medium">Entry Price</th>
+                    <th className="text-right px-5 py-2.5 text-gray-400 font-medium">Exit Price</th>
+                    <th className="text-right px-5 py-2.5 text-gray-400 font-medium">P&amp;L</th>
+                    <th className="text-right px-5 py-2.5 text-gray-400 font-medium">Confidence</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -468,7 +713,7 @@ export default function AgentDashboard({ params }: { params: Promise<{ agentId: 
                       <td className={`px-5 py-3 text-right font-bold font-mono ${t.pnlPct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                         {t.pnlPct >= 0 ? '+' : ''}{t.pnlPct.toFixed(2)}%
                       </td>
-                      <td className="px-5 py-3 text-right text-gray-500">
+                      <td className="px-5 py-3 text-right text-gray-400">
                         {t.entrySignal.confidence}%
                       </td>
                     </tr>
@@ -484,27 +729,27 @@ export default function AgentDashboard({ params }: { params: Promise<{ agentId: 
           <div className="bg-[#0D1B2A] rounded-xl p-4 border border-gray-800/60 flex items-start gap-3">
             <TrendingUpIcon className="w-4 h-4 text-green-400 mt-0.5 shrink-0" />
             <div>
-              <p className="text-gray-500 mb-0.5">R-Multiple</p>
+              <p className="text-gray-400 mb-0.5">R-Multiple</p>
               <p className="font-bold font-mono text-white text-base">{perf.rMultiple.toFixed(2)}×</p>
-              <p className="text-gray-600 mt-0.5">Avg win / avg loss ratio</p>
+              <p className="text-gray-400 mt-0.5">Avg win / avg loss ratio</p>
             </div>
           </div>
           <div className="bg-[#0D1B2A] rounded-xl p-4 border border-gray-800/60 flex items-start gap-3">
             <ActivityIcon className="w-4 h-4 text-[#00A9BA] mt-0.5 shrink-0" />
             <div>
-              <p className="text-gray-500 mb-0.5">Final Return</p>
+              <p className="text-gray-400 mb-0.5">Final Return</p>
               <p className={`font-bold font-mono text-base ${perf.finalReturn >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                 {perf.finalReturn >= 0 ? '+' : ''}{perf.finalReturn.toFixed(1)}%
               </p>
-              <p className="text-gray-600 mt-0.5">From start equity = 100</p>
+              <p className="text-gray-400 mt-0.5">From start equity = 100</p>
             </div>
           </div>
           <div className="bg-[#0D1B2A] rounded-xl p-4 border border-gray-800/60 flex items-start gap-3">
             <ShieldCheckIcon className="w-4 h-4 text-purple-400 mt-0.5 shrink-0" />
             <div>
-              <p className="text-gray-500 mb-0.5">Data Source</p>
+              <p className="text-gray-400 mb-0.5">Data Source</p>
               <p className="font-bold text-white text-base">Mirror Node</p>
-              <p className="text-gray-600 mt-0.5">{perf.totalHCSMsgs} HCS msgs verified</p>
+              <p className="text-gray-400 mt-0.5">{perf.totalHCSMsgs} HCS msgs verified</p>
             </div>
           </div>
         </div>

@@ -21,7 +21,7 @@ test.describe('Homepage', () => {
   });
 
   test('loads with 200 and correct title', async ({ page }) => {
-    await expect(page).toHaveTitle(/TradeAgent/);
+    await expect(page).toHaveTitle(/Arcane/);
   });
 
   test('hero headline is visible', async ({ page }) => {

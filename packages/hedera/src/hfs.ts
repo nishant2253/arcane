@@ -66,7 +66,7 @@ export async function storeAgentConfig(
   const createTx = await new FileCreateTransaction()
     .setKeys([operatorKey.publicKey])
     .setContents(firstChunk)
-    .setFileMemo(`TradeAgent:AgentConfig:${config.agentId}`)
+    .setFileMemo(`Arcane:AgentConfig:${config.agentId}`)
     .setMaxTransactionFee(new Hbar(2))
     .execute(client);
 

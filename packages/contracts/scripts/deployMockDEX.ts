@@ -71,7 +71,7 @@ function setEnvVar(filePath: string, key: string, value: string): void {
 }
 
 async function main() {
-  console.log('\n■ TradeAgent — MockDEX Deployment (Real HTS Token Transfers)');
+  console.log('\n■ Arcane — MockDEX Deployment (Real HTS Token Transfers)');
   console.log('═══════════════════════════════════════════════════════════\n');
 
   const accountIdStr  = process.env.OPERATOR_ACCOUNT_ID!;
@@ -113,7 +113,7 @@ async function main() {
       .setTreasuryAccountId(operatorId)
       .setSupplyKey(privateKey.publicKey)
       .setAdminKey(privateKey.publicKey)
-      .setTokenMemo('TradeAgent tUSDC — testnet swap token')
+      .setTokenMemo('Arcane tUSDC — testnet swap token')
       .setMaxTransactionFee(new Hbar(30))
       .execute(client);
     const receipt = await tx.getReceipt(client);
@@ -150,7 +150,7 @@ async function main() {
       .setBytecode(fullBytecode)
       .setGas(2_000_000)
       .setAdminKey(privateKey.publicKey)
-      .setContractMemo('TradeAgent:MockDEX:v2')
+      .setContractMemo('Arcane:MockDEX:v2')
       .execute(client);
 
     const deployReceipt = await deployFlow.getReceipt(client);

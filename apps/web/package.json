@@ -1,7 +1,7 @@
 {
   "name": "@tradeagent/web",
   "version": "1.0.0",
-  "description": "TradeAgent — Frontend (Next.js 15 + Zustand + shadcn/ui)",
+  "description": "Arcane — Frontend (Next.js 15 + Zustand + shadcn/ui)",
   "private": true,
   "scripts": {
     "dev": "next dev --port 3000",

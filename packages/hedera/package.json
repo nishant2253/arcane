@@ -1,7 +1,7 @@
 {
   "name": "@tradeagent/hedera",
   "version": "1.0.0",
-  "description": "TradeAgent — Hedera integration layer (HCS, HTS, HFS, HCS-10)",
+  "description": "Arcane — Hedera integration layer (HCS, HTS, HFS, HCS-10)",
   "private": true,
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

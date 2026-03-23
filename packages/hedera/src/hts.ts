@@ -1,12 +1,12 @@
 /**
  * hts.ts — Hedera Token Service integration
  *
- * Creates and manages the TradeAgent Strategies NFT collection.
+ * Creates and manages the Arcane Strategies NFT collection.
  * Each listed agent gets minted as an NFT with 5% protocol royalties.
  *
  * Key Hedera differentiator:
  *   Royalties are enforced at the PROTOCOL level — not smart contract logic.
- *   Every secondary sale on any marketplace pays 5% to the TradeAgent operator.
+ *   Every secondary sale on any marketplace pays 5% to the Arcane operator.
  *   This is impossible to circumvent on Hedera. On Ethereum, it's optional.
  *
  * Pattern:
@@ -48,7 +48,7 @@ export interface NFTMetadata {
 // ── createStrategyNFTCollection ──────────────────────────────────
 
 /**
- * Creates the shared "TradeAgent Strategies" NFT collection.
+ * Creates the shared "Arcane Strategies" NFT collection.
  *
  * Run ONCE at startup, then save the returned ID as STRATEGY_TOKEN_ID in .env.
  *
@@ -76,7 +76,7 @@ export async function createStrategyNFTCollection(
     );
 
   const tx = await new TokenCreateTransaction()
-    .setTokenName('TradeAgent Strategies')
+    .setTokenName('Arcane Strategies')
     .setTokenSymbol('TAS')
     .setTokenType(TokenType.NonFungibleUnique)
     .setSupplyType(TokenSupplyType.Finite)
@@ -85,7 +85,7 @@ export async function createStrategyNFTCollection(
     .setSupplyKey(operatorKey)
     .setAdminKey(operatorKey)
     .setCustomFees([royaltyFee])
-    .setTokenMemo('TradeAgent verified strategy NFTs — HIP-412')
+    .setTokenMemo('Arcane verified strategy NFTs — HIP-412')
     .setMaxTransactionFee(new Hbar(100))
     .execute(client);
 

@@ -4,7 +4,7 @@
  * Bootstraps all Hedera infrastructure required before Phase 4 (AI engine):
  *   1. Creates HCS topic for the test agent (per-agent audit trail)
  *   2. Stores test agent config in HFS (on-chain config)
- *   3. Creates the TradeAgent Strategies NFT collection
+   *   3. Creates the Arcane Strategies NFT collection
  *   4. Registers the platform on HCS-10 OpenConvAI (if enabled)
  *
  * Run this ONCE to set up the platform, then save the output to .env.
@@ -35,7 +35,7 @@ const ENV_PATH = path.resolve(__dirname, '../../.env');
 
 async function setupHedera(): Promise<void> {
   console.log('');
-  console.log('🔧 TradeAgent — Hedera Infrastructure Setup');
+  console.log('🔧 Arcane — Hedera Infrastructure Setup');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log('');
 
@@ -108,7 +108,7 @@ async function setupHedera(): Promise<void> {
     console.log(`🎨 Step 4: NFT collection already exists — skipping`);
     console.log(`   STRATEGY_TOKEN_ID: ${process.env.STRATEGY_TOKEN_ID}`);
   } else {
-    console.log('🎨 Step 4: Creating TradeAgent Strategies NFT collection (5% royalties)...');
+    console.log('🎨 Step 4: Creating Arcane Strategies NFT collection (5% royalties)...');
 
     const tokenId = await createStrategyNFTCollection(client, operatorId, operatorKey);
 

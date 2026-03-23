@@ -26,7 +26,7 @@ app.use(express.urlencoded({ extended: true }));
 app.get('/health', (_req, res) => {
   res.json({
     status:    'ok',
-    service:   'TradeAgent API',
+    service:   'Arcane API',
     version:   '2.1.0',
     network:   process.env.HEDERA_NETWORK || 'testnet',
     timestamp: new Date().toISOString(),
@@ -72,7 +72,7 @@ app.post('/api/backtest', async (req, res) => {
 // ── Root ─────────────────────────────────────────────────────────
 app.get('/', (_req, res) => {
   res.json({
-    name:        'TradeAgent API',
+    name:        'Arcane API',
     description: 'AI-Powered Trading Agent Platform on Hedera Blockchain',
     version:     '2.1.0',
     hackathon:   'Hedera APEX Hackathon 2026 — Track 1: AI & Agents',
@@ -105,7 +105,7 @@ app.use((_req, res) => {
 
 // ── Global error handler ─────────────────────────────────────────
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error('[TradeAgent API Error]', err.message);
+  console.error('[Arcane API Error]', err.message);
   res.status(500).json({
     error:   'Internal server error',
     message: process.env.NODE_ENV === 'development' ? err.message : undefined,
@@ -115,18 +115,18 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 // ── Start server ─────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log('');
-  console.log('  ██████████╗ ██████╗  █████╗ ██████╗ ███████╗ █████╗  ██████╗ ███████╗███╗   ██╗████████╗');
-  console.log('  ╚══ ██╔══╝ ██╔══██╗ ██╔══╝ ██╔══██╗ ╚════╝  ██╔══╝ ██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝');
-  console.log('       ██║   ██████╔╝ ███████║██║  ██║ █████╗  ███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║');
-  console.log('       ██║   ██╔══██╗ ██╔══██║██║  ██║ ██╔══╝  ██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║');
-  console.log('       ██║   ██║  ██║ ██║  ██║██████╔╝ ███████╗██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║');
-  console.log('       ╚═╝   ╚═╝  ╚═╝ ╚═╝  ╚═╝╚═════╝  ╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝');
+  console.log('   █████╗ ██████╗  ██████╗ █████╗ ███╗   ██╗███████╗');
+  console.log('  ██╔══██╗██╔══██╗██╔════╝██╔══██╗████╗  ██║██╔════╝');
+  console.log('  ███████║██████╔╝██║     ███████║██╔██╗ ██║█████╗  ');
+  console.log('  ██╔══██║██╔══██╗██║     ██╔══██║██║╚██╗██║██╔══╝  ');
+  console.log('  ██║  ██║██║  ██║╚██████╗██║  ██║██║ ╚████║███████╗');
+  console.log('  ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═══╝╚══════╝');
   console.log('');
-  console.log(`  🚀 TradeAgent API v2.1.0 — Hedera APEX Hackathon 2026`);
-  console.log(`  🌐 Server:  http://localhost:${PORT}`);
-  console.log(`  ❤️  Health:  http://localhost:${PORT}/health`);
-  console.log(`  🔗 Network: ${process.env.HEDERA_NETWORK || 'testnet'}`);
-  console.log(`  ⚡ Mode:    ${process.env.NODE_ENV || 'development'}`);
+  console.log(`  Arcane API v2.1.0 — Hedera APEX Hackathon 2026`);
+  console.log(`  Server:  http://localhost:${PORT}`);
+  console.log(`  Health:  http://localhost:${PORT}/health`);
+  console.log(`  Network: ${process.env.HEDERA_NETWORK || 'testnet'}`);
+  console.log(`  Mode:    ${process.env.NODE_ENV || 'development'}`);
   console.log('');
 });
 

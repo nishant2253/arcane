@@ -1,7 +1,7 @@
 {
-  "name": "tradeagent",
+  "name": "arcane",
   "version": "1.0.0",
-  "description": "AI-Powered Trading Agent Platform on Hedera Blockchain — Hedera APEX Hackathon 2026",
+  "description": "Arcane — AI-Powered Trading Agent Platform on Hedera Blockchain — Hedera APEX Hackathon 2026",
   "private": true,
   "workspaces": [
     "apps/*",

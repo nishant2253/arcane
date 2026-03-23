@@ -86,16 +86,16 @@ export function WalletConnectButton() {
         >
           <span className="w-2 h-2 rounded-full" style={{ background: '#10B981' }} />
           <span style={{ color: '#00A9BA', fontFamily: 'monospace' }}>{shortId}</span>
-          <span style={{ color: '#64748B' }}>|</span>
+          <span style={{ color: '#94A3B8' }}>|</span>
           <span style={{ color: '#E2E8F0' }}>{hbarBalance.toFixed(1)} ℏ</span>
-          <span style={{ color: '#64748B' }}>|</span>
+          <span style={{ color: '#94A3B8' }}>|</span>
           <span style={{ color: '#E2E8F0' }}>${tusdtBalance.toFixed(2)} tUSDT</span>
         </div>
         <button
           onClick={handleDisconnect}
           disabled={loading}
           className="px-3 py-1.5 rounded-lg text-sm font-medium cursor-pointer transition-all duration-200 hover:text-red-400 hover:border-red-500/50"
-          style={{ color: '#64748B', border: '1px solid rgba(255,255,255,0.08)' }}
+          style={{ color: '#94A3B8', border: '1px solid rgba(255,255,255,0.08)' }}
         >
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Disconnect'}
         </button>

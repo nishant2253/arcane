@@ -2,12 +2,14 @@
 
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
+import Image from 'next/image';
 import { useMarketplaceStore } from '@/stores/marketplaceStore';
 import Link from 'next/link';
 import {
   TrendingUpIcon, UsersIcon, BarChart2Icon, ExternalLinkIcon,
-  SearchIcon, SlidersIcon, ZapIcon, ShieldCheckIcon,
+  SearchIcon, SlidersIcon, ZapIcon, ShieldCheckIcon, StarIcon,
 } from 'lucide-react';
+import { useWalletStore } from '@/stores/walletStore';
 import {
   AreaChart, Area, ResponsiveContainer,
 } from 'recharts';
@@ -36,6 +38,7 @@ function AgentAvatar({ name, size = 48 }: { name: string; size?: number }) {
 
 export default function MarketplacePage() {
   const { listings, filter, sort, isLoading, setListings, setFilter, setSort, setLoading } = useMarketplaceStore();
+  const { accountId } = useWalletStore();
   const [search, setSearch] = useState('');
 
   useEffect(() => {
@@ -61,13 +64,23 @@ export default function MarketplacePage() {
   return (
     <div className="min-h-[calc(100vh-64px)] px-4 py-8 max-w-6xl mx-auto">
       {/* ── Header ──────────────────────────────────────────────── */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-display font-bold mb-2" style={{ color: '#E2E8F0' }}>
-          Agents Marketplace
-        </h1>
-        <p className="text-sm" style={{ color: '#475569' }}>
-          Community-built strategies. Performance verified on Hedera HCS — tamper-proof.
-        </p>
+      <div className="mb-8 flex items-center gap-4">
+        <Image
+          src="/arcane-logo.png"
+          alt="Arcane"
+          width={52}
+          height={52}
+          className="rounded-xl flex-shrink-0"
+          style={{ objectFit: 'cover', filter: 'drop-shadow(0 0 12px rgba(0,169,186,0.3))' }}
+        />
+        <div>
+          <h1 className="text-3xl font-display font-bold mb-1" style={{ color: '#E2E8F0' }}>
+            Arcane Marketplace
+          </h1>
+          <p className="text-sm" style={{ color: '#94A3B8' }}>
+            Community-built strategies. Performance verified on Hedera HCS — tamper-proof.
+          </p>
+        </div>
       </div>
 
       {/* ── Filters row ─────────────────────────────────────────── */}
@@ -77,7 +90,7 @@ export default function MarketplacePage() {
           className="flex items-center gap-2 flex-1 px-3 py-2 rounded-xl"
           style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}
         >
-          <SearchIcon size={14} style={{ color: '#475569' }} />
+          <SearchIcon size={14} style={{ color: '#94A3B8' }} />
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
@@ -107,7 +120,7 @@ export default function MarketplacePage() {
 
         {/* Sort */}
         <div className="flex items-center gap-2">
-          <SlidersIcon size={14} style={{ color: '#475569' }} />
+          <SlidersIcon size={14} style={{ color: '#94A3B8' }} />
           <select
             value={sort}
             onChange={e => setSort(e.target.value as 'winRate' | 'priceHbar' | 'executions' | 'createdAt')}
@@ -135,17 +148,17 @@ export default function MarketplacePage() {
         </div>
       ) : visible.length === 0 ? (
         <div className="py-24 text-center">
-          <ZapIcon size={32} className="mx-auto mb-4" style={{ color: '#1C2333' }} />
-          <p className="font-semibold mb-1" style={{ color: '#334155' }}>No agents listed yet</p>
-          <p className="text-sm" style={{ color: '#1E293B' }}>
+          <ZapIcon size={32} className="mx-auto mb-4" style={{ color: '#94A3B8' }} />
+          <p className="font-semibold mb-1" style={{ color: '#94A3B8' }}>No agents listed yet</p>
+          <p className="text-sm" style={{ color: '#94A3B8' }}>
             Deploy an agent and list it as an NFT strategy!
           </p>
           <Link
-            href="/agents"
+            href="/create"
             className="inline-block mt-4 text-sm cursor-pointer"
             style={{ color: '#00A9BA' }}
           >
-            View Agents →
+            Create Agent →
           </Link>
         </div>
       ) : (
@@ -172,7 +185,7 @@ export default function MarketplacePage() {
                       <h3 className="font-semibold text-sm truncate" style={{ color: '#E2E8F0' }}>
                         {agent.name}
                       </h3>
-                      <p className="text-[10px] mt-0.5" style={{ color: '#475569' }}>
+                      <p className="text-[10px] mt-0.5" style={{ color: '#94A3B8' }}>
                         {agent.strategyType.replace('_', ' ')}
                       </p>
                     </div>
@@ -180,7 +193,7 @@ export default function MarketplacePage() {
                       <p className="text-sm font-bold" style={{ color: '#00A9BA' }}>
                         {agent.priceHbar ? `${agent.priceHbar} ℏ` : '—'}
                       </p>
-                      <p className="text-[10px] text-gray-500">
+                      <p className="text-[10px] text-gray-400">
                         ≈ ${((agent.priceHbar ?? 0) * 0.08).toFixed(2)}
                       </p>
                     </div>
@@ -197,7 +210,7 @@ export default function MarketplacePage() {
                       { label: 'Avg Loss',     value: agent.avgLoss != null ? `-${Number(agent.avgLoss).toFixed(1)}%` : '—',     color: '#EF4444' },
                     ].map(s => (
                       <div key={s.label} className="bg-[#0A1628] rounded-lg p-2 text-center">
-                        <p className="text-[9px] text-gray-600 mb-0.5">{s.label}</p>
+                        <p className="text-[9px] text-gray-400 mb-0.5">{s.label}</p>
                         <p className="text-xs font-bold font-mono" style={{ color: s.color }}>{s.value}</p>
                       </div>
                     ))}
@@ -231,15 +244,26 @@ export default function MarketplacePage() {
                       <ShieldCheckIcon size={10} />
                       <span>{agent.executions} HCS decisions</span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={e => { e.preventDefault(); e.stopPropagation(); window.open(agent.hashscanUrl, '_blank', 'noopener,noreferrer'); }}
-                      className="flex items-center gap-1 text-[10px] hover:text-white transition-colors cursor-pointer"
-                      style={{ color: '#334155', background: 'none', border: 'none', padding: 0 }}
-                    >
-                      HashScan
-                      <ExternalLinkIcon size={9} />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {accountId && accountId === agent.ownerId && (
+                        <span
+                          className="flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                          style={{ background: 'rgba(0,169,186,0.12)', color: '#00A9BA', border: '1px solid rgba(0,169,186,0.25)' }}
+                        >
+                          <StarIcon size={8} />
+                          Your listing
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={e => { e.preventDefault(); e.stopPropagation(); window.open(agent.hashscanUrl, '_blank', 'noopener,noreferrer'); }}
+                        className="flex items-center gap-1 text-[10px] hover:text-white transition-colors cursor-pointer"
+                        style={{ color: '#94A3B8', background: 'none', border: 'none', padding: 0 }}
+                      >
+                        HashScan
+                        <ExternalLinkIcon size={9} />
+                      </button>
+                    </div>
                   </div>
                 </div>
               </Link>
@@ -249,7 +273,7 @@ export default function MarketplacePage() {
       )}
 
       {/* Collection stats footer */}
-      <div className="mt-10 text-center text-xs" style={{ color: '#1E293B' }}>
+      <div className="mt-10 text-center text-xs" style={{ color: '#94A3B8' }}>
         5% royalty on secondary sales · Enforced by Hedera protocol · Cannot be bypassed
       </div>
     </div>

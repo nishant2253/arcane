@@ -49,6 +49,7 @@ model Agent {
   serialNumber    Int?        // HTS NFT serial number if listed
   ipfsCID         String?     // IPFS metadata CID (HIP-412)
   priceHbar       Float?      // Marketplace listing price in HBAR
+  creatorId       String?     // Original creator account (for royalty on secondary sales)
 
   // Timestamps
   createdAt       DateTime    @default(now())

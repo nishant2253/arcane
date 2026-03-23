@@ -83,7 +83,7 @@ export function TxHistoryPanel({ ownerId }: Props) {
           Transaction Audit Log
         </h2>
         <div className="flex items-center gap-3">
-          <span className="text-xs" style={{ color: '#334155' }}>
+          <span className="text-xs" style={{ color: '#94A3B8' }}>
             {txs.length} record{txs.length !== 1 ? 's' : ''}
           </span>
           <button
@@ -104,9 +104,9 @@ export function TxHistoryPanel({ ownerId }: Props) {
         </div>
       ) : txs.length === 0 ? (
         <div className="py-12 text-center">
-          <ShieldCheckIcon size={28} className="mx-auto mb-3" style={{ color: '#1C2333' }} />
-          <p className="text-sm" style={{ color: '#334155' }}>No transactions yet.</p>
-          <p className="text-xs mt-1" style={{ color: '#1E293B' }}>
+          <ShieldCheckIcon size={28} className="mx-auto mb-3" style={{ color: '#94A3B8' }} />
+          <p className="text-sm" style={{ color: '#94A3B8' }}>No transactions yet.</p>
+          <p className="text-xs mt-1" style={{ color: '#94A3B8' }}>
             Deploy an agent or execute a trade to see records here.
           </p>
         </div>
@@ -115,7 +115,7 @@ export function TxHistoryPanel({ ownerId }: Props) {
           {/* Column headers */}
           <div
             className="hidden sm:grid grid-cols-[160px_1fr_180px_80px_100px_110px] gap-3 px-3 pb-2 mb-1 text-[10px] uppercase tracking-wider"
-            style={{ color: '#334155', borderBottom: '1px solid rgba(255,255,255,0.04)' }}
+            style={{ color: '#94A3B8', borderBottom: '1px solid rgba(255,255,255,0.04)' }}
           >
             <span>Type</span>
             <span>Agent</span>
@@ -155,7 +155,7 @@ export function TxHistoryPanel({ ownerId }: Props) {
 
                   {/* Agent name + optional signal badge */}
                   <div className="flex items-center gap-1.5 min-w-0">
-                    <span className="text-xs truncate" style={{ color: '#64748B' }}>{agentName}</span>
+                    <span className="text-xs truncate" style={{ color: '#94A3B8' }}>{agentName}</span>
                     {signal && (
                       <span
                         className="text-[10px] px-1.5 py-0.5 rounded font-bold flex-shrink-0"
@@ -173,7 +173,7 @@ export function TxHistoryPanel({ ownerId }: Props) {
                   <div className="flex items-center gap-1.5">
                     <span
                       className="text-[11px] font-mono truncate"
-                      style={{ color: '#475569' }}
+                      style={{ color: '#94A3B8' }}
                       title={tx.txId}
                     >
                       {truncateTxId(tx.txId)}
@@ -202,7 +202,7 @@ export function TxHistoryPanel({ ownerId }: Props) {
                   </div>
 
                   {/* Relative time */}
-                  <span className="text-[11px]" style={{ color: '#334155' }}>
+                  <span className="text-[11px]" style={{ color: '#94A3B8' }}>
                     {timeAgo(tx.createdAt)}
                   </span>
 
@@ -234,7 +234,7 @@ export function TxHistoryPanel({ ownerId }: Props) {
       {txs.length > 0 && (
         <div
           className="mt-4 pt-4 flex items-center gap-2 text-xs"
-          style={{ borderTop: '1px solid rgba(255,255,255,0.04)', color: '#1E293B' }}
+          style={{ borderTop: '1px solid rgba(255,255,255,0.04)', color: '#94A3B8' }}
         >
           <ShieldCheckIcon size={12} style={{ color: '#00A9BA' }} />
           All transactions are user-signed via HashPack and anchored on Hedera.

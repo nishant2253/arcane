@@ -1,7 +1,7 @@
 {
   "name": "@tradeagent/contracts",
   "version": "1.0.0",
-  "description": "TradeAgent — Smart contracts (AgentRegistry.sol)",
+  "description": "Arcane — Smart contracts (AgentRegistry.sol)",
   "private": true,
   "scripts": {
     "compile": "npx hardhat compile",

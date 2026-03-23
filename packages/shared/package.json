@@ -1,7 +1,7 @@
 {
   "name": "@tradeagent/shared",
   "version": "1.0.0",
-  "description": "TradeAgent — Shared types, schemas, and utilities",
+  "description": "Arcane — Shared types, schemas, and utilities",
   "private": true,
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

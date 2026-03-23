@@ -1,7 +1,7 @@
 /**
  * agentRunner.ts — AI + Algorithmic trading agent cycle
  *
- * The core trading loop for TradeAgent:
+ * The core trading loop for Arcane:
  *
  *   ┌─────────────────────────────────────────────────────────────┐
  *   │  1. Fetch price from Pyth oracle (via Agent Kit)            │

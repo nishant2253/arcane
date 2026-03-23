@@ -16,7 +16,7 @@ interface IExchangeRate {
 }
 
 /// @title AgentRegistry
-/// @notice On-chain registry for TradeAgent AI trading agents.
+/// @notice On-chain registry for Arcane AI trading agents.
 /// @dev Deployed natively via ContractCreateTransaction (not eth_sendRawTransaction).
 ///      Each agent links to:
 ///        - An HCS topic (aBFT audit trail of every decision)

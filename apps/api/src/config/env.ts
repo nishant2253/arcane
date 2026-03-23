@@ -29,7 +29,7 @@ export function loadEnv(): void {
   const network = optionalEnv('HEDERA_NETWORK', 'testnet');
   const nodeEnv = optionalEnv('NODE_ENV', 'development');
 
-  console.log(`\n📋 TradeAgent Environment Loading...`);
+  console.log(`\n📋 Arcane Environment Loading...`);
   console.log(`   Network: ${network}`);
   console.log(`   Mode:    ${nodeEnv}`);
 

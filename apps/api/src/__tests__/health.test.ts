@@ -67,10 +67,10 @@ beforeAll(async () => {
 
 // ── 1. Health endpoint ────────────────────────────────────────────
 describe('GET /', () => {
-  it('responds 200 with TradeAgent header info', async () => {
+  it('responds 200 with Arcane header info', async () => {
     const res = await request(app).get('/');
     expect(res.status).toBe(200);
-    expect(res.body).toHaveProperty('name', 'TradeAgent API');
+    expect(res.body).toHaveProperty('name', 'Arcane API');
   });
 });
 

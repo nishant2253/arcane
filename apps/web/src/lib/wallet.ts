@@ -22,10 +22,10 @@ export async function initWalletConnector() {
 
   dAppConnector = new DAppConnector(
     {
-      name: 'TradeAgent',
+      name: 'Arcane',
       description: 'AI-Powered Trading Agent Platform on Hedera',
       url: typeof window !== 'undefined' ? window.location.origin : '',
-      icons: [`${typeof window !== 'undefined' ? window.location.origin : ''}/logo.png`],
+      icons: [`${typeof window !== 'undefined' ? window.location.origin : ''}/arcane-logo.png`],
     },
     LedgerId.TESTNET,
     projectId,

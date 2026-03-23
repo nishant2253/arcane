@@ -14,7 +14,7 @@ router.post('/', async (req: Request, res: Response) => {
     return;
   }
 
-  const VALID_TYPES = ['DEPLOY_HFS', 'DEPLOY_HCS', 'DEPLOY_HSCS', 'TRADE_SWAP', 'TOKEN_ASSOCIATE'];
+  const VALID_TYPES = ['DEPLOY_HFS', 'DEPLOY_HCS', 'DEPLOY_HSCS', 'TRADE_SWAP', 'TOKEN_ASSOCIATE', 'NFT_PURCHASE', 'NFT_SALE'];
   if (!VALID_TYPES.includes(type)) {
     res.status(400).json({ error: `Invalid type. Must be one of: ${VALID_TYPES.join(', ')}` });
     return;

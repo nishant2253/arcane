@@ -2666,7 +2666,7 @@ STRATEGY_TOKEN_ID=0.0.XXXXX
 
 GEMINI_API_KEY=AIza...
 
-GEMINI_MODEL=gemini-1.5-flash
+GEMINI_MODEL=gemini-2.5-flash
 
 TradeAgent MockDEX Guide • Hedera Testnet Trade Execution • Confidential
 

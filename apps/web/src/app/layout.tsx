@@ -3,12 +3,18 @@ import './globals.css';
 import { Navigation } from '@/components/Navigation';
 
 export const metadata: Metadata = {
-  title: 'TradeAgent — AI Trading Platform on Hedera',
+  title: 'Arcane — AI Trading Platform on Hedera',
   description: 'Deploy AI trading agents on Hedera Hashgraph. HCS-verified execution, NFT strategy marketplace, on-chain audit trail.',
+  icons: {
+    icon:    '/arcane-logo.png',
+    apple:   '/arcane-logo.png',
+    shortcut: '/arcane-logo.png',
+  },
   openGraph: {
-    title: 'TradeAgent — AI Trading Platform on Hedera',
+    title: 'Arcane — AI Trading Platform on Hedera',
     description: 'Deploy AI trading agents with tamper-proof HCS audit trails',
     type: 'website',
+    images: [{ url: '/arcane-logo.png', width: 1024, height: 1024, alt: 'Arcane Logo' }],
   },
 };
 

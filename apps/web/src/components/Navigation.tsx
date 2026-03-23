@@ -1,31 +1,32 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { useWalletStore } from '@/stores/walletStore';
-import { BotIcon, WalletIcon, StoreIcon, LayoutDashboardIcon, MenuIcon, XIcon } from 'lucide-react';
+import { BotIcon, WalletIcon, StoreIcon, LayoutDashboardIcon, MenuIcon, XIcon, PlusCircleIcon } from 'lucide-react';
 import { WalletConnectButton } from './WalletConnect';
 
 const NAV_LINKS = [
-  { href: '/',            label: 'Dashboard',  icon: LayoutDashboardIcon },
-  { href: '/wallet',      label: 'Wallet',     icon: WalletIcon },
-  { href: '/agents',      label: 'Agents',     icon: BotIcon },
-  { href: '/marketplace', label: 'Marketplace',icon: StoreIcon },
+  { href: '/',            label: 'Dashboard',  icon: LayoutDashboardIcon, requiresWallet: false },
+  { href: '/agents',      label: 'Agents',     icon: BotIcon,             requiresWallet: true  },
+  { href: '/create',      label: 'Create',     icon: PlusCircleIcon,      requiresWallet: true  },
+  { href: '/wallet',      label: 'Wallet',     icon: WalletIcon,          requiresWallet: true  },
+  { href: '/marketplace', label: 'Marketplace',icon: StoreIcon,           requiresWallet: true  },
 ];
 
 export function Navigation() {
   const pathname = usePathname();
-  const { accountId, hbarBalance, isConnected, disconnect } = useWalletStore();
+  const { isConnected } = useWalletStore();
   const [menuOpen, setMenuOpen] = useState(false);
   // Prevent SSR/client mismatch from Zustand persist (localStorage unavailable on server)
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
-
-  const shortId = accountId
-    ? `${accountId.slice(0, 5)}...${accountId.slice(-3)}`
-    : null;
+  const visibleLinks = mounted
+    ? NAV_LINKS.filter(l => !l.requiresWallet || isConnected)
+    : NAV_LINKS.filter(l => !l.requiresWallet);
 
   return (
     <nav
@@ -40,21 +41,24 @@ export function Navigation() {
       <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
         {/* Logo */}
         <Link href="/" className="flex items-center gap-2 cursor-pointer">
-          <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center font-display text-xs font-bold"
-            style={{ background: 'linear-gradient(135deg, #00A9BA, #1565C0)', color: '#fff' }}
-          >
-            TA
-          </div>
+          <Image
+            src="/arcane-logo.png"
+            alt="Arcane"
+            width={36}
+            height={36}
+            className="rounded-lg"
+            style={{ objectFit: 'cover' }}
+            priority
+          />
           <span className="font-display text-sm font-bold tracking-widest" style={{ color: '#E2E8F0' }}>
-            TRADE<span style={{ color: '#00A9BA' }}>AGENT</span>
+            ARC<span style={{ color: '#00A9BA' }}>ANE</span>
           </span>
         </Link>
 
         {/* Desktop links */}
         <div className="hidden md:flex items-center gap-1">
-          {NAV_LINKS.map(({ href, label, icon: Icon }) => {
-            const active = pathname === href;
+          {visibleLinks.map(({ href, label, icon: Icon }) => {
+            const active = pathname === href || (href !== '/' && pathname.startsWith(href));
             return (
               <Link
                 key={href}
@@ -94,7 +98,7 @@ export function Navigation() {
           className="md:hidden px-4 pb-4"
           style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}
         >
-          {NAV_LINKS.map(({ href, label, icon: Icon }) => (
+          {visibleLinks.map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
               href={href}
@@ -106,6 +110,11 @@ export function Navigation() {
               {label}
             </Link>
           ))}
+          {mounted && !isConnected && (
+            <p className="text-[11px] mt-3 px-3" style={{ color: '#94A3B8' }}>
+              Connect your wallet to access all features.
+            </p>
+          )}
         </div>
       )}
     </nav>

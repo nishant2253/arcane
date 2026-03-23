@@ -25,7 +25,7 @@ const ALLOCATION_CARDS = [
 function CopyButton({ text }: { text: string }) {
   const copy = () => navigator.clipboard.writeText(text);
   return (
-    <button onClick={copy} className="cursor-pointer transition-colors duration-200 hover:text-white" style={{ color: '#475569' }} title="Copy">
+    <button onClick={copy} className="cursor-pointer transition-colors duration-200 hover:text-white" style={{ color: '#94A3B8' }} title="Copy">
       <CopyIcon size={14} />
     </button>
   );
@@ -70,11 +70,11 @@ export default function WalletPage() {
             <WalletIcon size={28} style={{ color: '#00A9BA' }} />
           </div>
           <h1 className="text-xl font-bold mb-2 font-display" style={{ color: '#E2E8F0' }}>Connect Your Wallet</h1>
-          <p className="text-sm mb-8" style={{ color: '#475569' }}>Connect your Hedera account to view balances and manage agents.</p>
+          <p className="text-sm mb-8" style={{ color: '#94A3B8' }}>Connect your Hedera account to view balances and manage agents.</p>
           <div className="flex justify-center w-full mt-4">
             <WalletConnectButton />
           </div>
-          <p className="text-xs mt-3" style={{ color: '#334155' }}>HashPack · Blade · WalletConnect</p>
+          <p className="text-xs mt-3" style={{ color: '#94A3B8' }}>HashPack · Blade · WalletConnect</p>
         </motion.div>
       </div>
     );
@@ -84,12 +84,12 @@ export default function WalletPage() {
     <div className="min-h-[calc(100vh-64px)] px-4 py-8 max-w-6xl mx-auto">
       {/* ── Header: Total value ────────────────────────────────── */}
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
-        <p className="text-sm mb-1" style={{ color: '#475569' }}>Estimated total value</p>
+        <p className="text-sm mb-1" style={{ color: '#94A3B8' }}>Estimated total value</p>
         <div className="flex items-baseline gap-3">
           <h1 className="font-display text-5xl font-bold" style={{ color: '#E2E8F0' }}>
             {hbarBalance.toFixed(2)}
           </h1>
-          <span className="text-2xl" style={{ color: '#475569' }}>HBAR</span>
+          <span className="text-2xl" style={{ color: '#94A3B8' }}>HBAR</span>
         </div>
         <div className="flex items-center gap-2 mt-2">
           <span className="text-sm font-mono" style={{ color: '#00A9BA' }}>{accountId}</span>
@@ -99,7 +99,7 @@ export default function WalletPage() {
             target="_blank"
             rel="noopener noreferrer"
             className="cursor-pointer transition-colors duration-200 hover:text-white"
-            style={{ color: '#475569' }}
+            style={{ color: '#94A3B8' }}
             title="View on HashScan"
           >
             <ExternalLinkIcon size={14} />
@@ -124,7 +124,7 @@ export default function WalletPage() {
             >
               <card.icon size={16} style={{ color: card.color }} />
             </div>
-            <p className="text-xs mb-1" style={{ color: '#475569' }}>{card.label}</p>
+            <p className="text-xs mb-1" style={{ color: '#94A3B8' }}>{card.label}</p>
             <p className="text-xl font-bold font-display" style={{ color: card.color }}>
               {allocValues[card.key]}
             </p>
@@ -140,19 +140,21 @@ export default function WalletPage() {
             My Agents
           </h2>
           <Link
-            href="/agents"
+            href="/create"
             className="text-xs font-semibold px-3 py-1.5 rounded-lg cursor-pointer transition-all duration-200"
             style={{ background: 'rgba(0,169,186,0.1)', color: '#00A9BA', border: '1px solid rgba(0,169,186,0.25)' }}
           >
-            View Agents
+            + Deploy New
           </Link>
         </div>
 
         {agents.length === 0 ? (
           <div className="py-12 text-center">
-            <BotIcon size={32} className="mx-auto mb-3" style={{ color: '#1C2333' }} />
-            <p className="text-sm" style={{ color: '#334155' }}>No agents deployed yet.</p>
-            <p className="text-xs mt-2" style={{ color: '#475569' }}>Contact the operator to deploy a new agent.</p>
+            <BotIcon size={32} className="mx-auto mb-3" style={{ color: '#94A3B8' }} />
+            <p className="text-sm" style={{ color: '#94A3B8' }}>No agents deployed yet.</p>
+            <Link href="/create" className="text-xs mt-2 block cursor-pointer" style={{ color: '#00A9BA' }}>
+              Create your first agent →
+            </Link>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -160,7 +162,7 @@ export default function WalletPage() {
               <thead>
                 <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
                   {['Name','Strategy','Topic ID','Status','Executions',''].map(h => (
-                    <th key={h} className="pb-3 text-left text-xs font-medium" style={{ color: '#475569' }}>{h}</th>
+                    <th key={h} className="pb-3 text-left text-xs font-medium" style={{ color: '#94A3B8' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -171,7 +173,7 @@ export default function WalletPage() {
                     style={{ borderBottom: i < agents.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}
                   >
                     <td className="py-3 font-medium" style={{ color: '#E2E8F0' }}>{agent.name}</td>
-                    <td className="py-3 text-xs" style={{ color: '#64748B' }}>{agent.strategyType}</td>
+                    <td className="py-3 text-xs" style={{ color: '#94A3B8' }}>{agent.strategyType}</td>
                     <td className="py-3">
                       <a
                         href={`https://hashscan.io/${NETWORK}/topic/${agent.hcsTopicId}`}
@@ -195,12 +197,12 @@ export default function WalletPage() {
                         {agent.active ? 'Active' : 'Paused'}
                       </span>
                     </td>
-                    <td className="py-3 text-sm" style={{ color: '#64748B' }}>{agent.executions}</td>
+                    <td className="py-3 text-sm" style={{ color: '#94A3B8' }}>{agent.executions}</td>
                     <td className="py-3">
                       <Link
                         href={`/agents/${agent.id}`}
                         className="text-xs cursor-pointer transition-colors duration-200 hover:text-white"
-                        style={{ color: '#475569' }}
+                        style={{ color: '#94A3B8' }}
                       >
                         View →
                       </Link>
@@ -225,7 +227,7 @@ export default function WalletPage() {
           Live HCS Signal Feed
         </h2>
         {liveSignals.length === 0 ? (
-          <p className="text-sm py-6 text-center" style={{ color: '#334155' }}>
+          <p className="text-sm py-6 text-center" style={{ color: '#94A3B8' }}>
             No signals yet. Deploy an agent to start receiving decisions.
           </p>
         ) : (
@@ -245,15 +247,15 @@ export default function WalletPage() {
                 >
                   {s.decision?.signal ?? '—'}
                 </span>
-                <span style={{ color: '#64748B' }}>{s.agentName}</span>
-                <span className="ml-auto" style={{ color: '#334155', fontFamily: 'monospace' }}>
+                <span style={{ color: '#94A3B8' }}>{s.agentName}</span>
+                <span className="ml-auto" style={{ color: '#94A3B8', fontFamily: 'monospace' }}>
                   #{s.seq}
                 </span>
                 <a
                   href={s.hashscanUrl}
                   target="_blank" rel="noopener noreferrer"
                   className="cursor-pointer hover:text-white transition-colors duration-200"
-                  style={{ color: '#475569' }}
+                  style={{ color: '#94A3B8' }}
                 >
                   <ExternalLinkIcon size={12} />
                 </a>

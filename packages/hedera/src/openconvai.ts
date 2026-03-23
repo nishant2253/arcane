@@ -1,13 +1,13 @@
 /**
  * openconvai.ts — HCS-10 OpenConvAI agent registration & discovery
  *
- * Registers TradeAgent AI agents on the HCS-10 standard network,
+ * Registers Arcane AI agents on the HCS-10 standard network,
  * enabling inter-agent communication and discovery via the
  * OpenConvAI ecosystem.
  *
  * Key concepts:
  *   - Each agent gets inbound + outbound HCS topics for messaging
- *   - Other AI agents can discover TradeAgent agents via HCS-10 registry
+ *   - Other AI agents can discover Arcane agents via HCS-10 registry
  *   - Enables agent-to-agent collaboration (future: agent marketplace)
  *
  * Uses @hashgraphonline/standards-sdk (HCS-10 reference implementation)
@@ -58,9 +58,9 @@ export async function registerAgentHCS10(
 
   const agent = new AgentBuilder()
     .setName(params.name)
-    .setDescription(`TradeAgent: ${params.description} | Strategy: ${params.strategyType}`)
+    .setDescription(`Arcane: ${params.description} | Strategy: ${params.strategyType}`)
     .setAgentType('autonomous')
-    .setModel('gemini-1.5-flash')
+    .setModel('gemini-2.5-flash')
     .setNetwork('testnet')
     .setCapabilities([
       AIAgentCapability.TEXT_GENERATION,
@@ -71,7 +71,7 @@ export async function registerAgentHCS10(
   // Creates inbound + outbound HCS topics for inter-agent messaging
   const result = await client.createAgent(agent);
 
-  console.log(`[HCS-10] Agent registered: ${params.name}`);
+  console.log(`[Arcane HCS-10] Agent registered: ${params.name}`);
   console.log(`[HCS-10]   Inbound topic:  ${result.inboundTopicId}`);
   console.log(`[HCS-10]   Outbound topic: ${result.outboundTopicId}`);
 

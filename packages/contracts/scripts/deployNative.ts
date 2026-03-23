@@ -1,7 +1,7 @@
 /**
  * deployNative.ts — Hedera-native AgentRegistry deployment
  *
- * PRIMARY deployment path for TradeAgent Phase 2.
+ * PRIMARY deployment path for Arcane Phase 2.
  *
  * Uses ContractCreateFlow — the Hedera SDK's native high-level API that:
  *   1. Stores bytecode in HFS (FileCreateTransaction + FileAppendTransaction)
@@ -36,7 +36,7 @@ const ENV_PATH = path.resolve(__dirname, '../../../apps/api/.env');
 
 async function deployNative(): Promise<void> {
   console.log('');
-  console.log('🚀 TradeAgent — Native Hedera Contract Deployment');
+  console.log('🚀 Arcane — Native Hedera Contract Deployment');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log('');
 
@@ -111,7 +111,7 @@ async function deployNative(): Promise<void> {
     .setBytecode(bytecode)              // Pass the raw hex bytecode string
     .setGas(4_000_000)                  // Gas for constructor — Hedera gas is cheap (~$0.05 per million)
     .setAdminKey(privateKey.publicKey) // Admin key enables Hedera-native upgrades
-    .setContractMemo('TradeAgent:AgentRegistry:v2.1')
+    .setContractMemo('Arcane:AgentRegistry:v2.1')
     .execute(client);
 
   const receipt = await contractCreateFlow.getReceipt(client);

@@ -2,7 +2,7 @@
  * indicators.ts — Full algorithmic indicator library
  *
  * Provides deterministic, pure-function implementations of all technical
- * indicators used by TradeAgent strategies. No side effects, fully testable.
+ * indicators used by Arcane strategies. No side effects, fully testable.
  *
  * Indicators: EMA · RSI (Wilder) · MACD · Bollinger Bands · ATR · Volume
  * Output: IndicatorResult with composite score (−100 to +100)

@@ -27,6 +27,7 @@ The `hashpackEthers.ts` ethers signer bridge is permanently incompatible with `D
 **Applies to all user-signed write calls:**
 | Call | Location | Gas | Max Fee |
 |------|----------|-----|---------|
+| `AgentRegistry.registerAgent()` (deploy TX3) | `create/page.tsx` | 800,000 | 5 HBAR |
 | `MockDEX.executeSwap()` (manual trade SELL) | `TradeApprovalModal.tsx` | 800,000 | 5 HBAR |
 | `MockDEX.executeSwap()` (manual trade BUY step 2) | `TradeApprovalModal.tsx` | 800,000 | 5 HBAR |
 
@@ -34,7 +35,32 @@ The `hashpackEthers.ts` ethers signer bridge is permanently incompatible with `D
 
 ---
 
-## 3. Real Technical Indicator Computation
+## 3. Non-Blocking finalize-deploy Endpoint
+**Status:** ✅ Complete
+
+`POST /api/agents/finalize-deploy` responds in ~100ms:
+1. Validate request params (~1ms)
+2. Create dedicated agent trading account (AccountCreateTransaction + tUSDT association, ~3–5s)
+3. `prisma.agent.create()` — save agent (~30ms)
+4. `scheduleAgentJob()` — register BullMQ cron (~10ms)
+5. `res.status(201).json(...)` — **respond immediately with `agentAccountId`**
+6. `setImmediate(() => registerAgentHCS10(...))` — fire-and-forget HCS-10 (30–90s background)
+
+---
+
+## 4. AI Agent Proposal Card
+**Status:** ✅ Complete
+
+`ConfigProposalCard` in `create/page.tsx` displays full Gemini-generated `AgentConfig`:
+- Agent name, strategy type badge, asset pair, timeframe
+- Technical indicators as chips (EMA, RSI, MACD)
+- Risk management: Stop-Loss %, Take-Profit %, Max Position %
+- ConfigHash preview (first 14 chars of keccak256 hash)
+- Deploy button scoped to this specific config version
+
+---
+
+## 5. Real Technical Indicator Computation
 **Status:** ✅ Complete
 
 Before every Gemini AI decision, the backend now:
@@ -48,7 +74,7 @@ Gemini is required to cite actual values in its reasoning. The prompt includes e
 
 ---
 
-## 4. Agent Wallet Architecture (True Agentic Trading)
+## 6. Agent Wallet Architecture (True Agentic Trading)
 **Status:** ✅ Complete
 
 Each deployed agent gets its own dedicated Hedera ECDSA account — the core solution to the "agentic trading paradox":
@@ -70,7 +96,7 @@ Each deployed agent gets its own dedicated Hedera ECDSA account — the core sol
 
 ---
 
-## 5. Transaction Audit Log
+## 7. Transaction Audit Log
 **Status:** ✅ Complete
 
 New `Transaction` Prisma model and `/api/transactions` endpoints record every HashPack-approved transaction:
@@ -87,7 +113,7 @@ Accessible at `/wallet` — shows type icon, agent name, truncated Tx ID (copy b
 
 ---
 
-## 6. Run Trade Button + Test Run
+## 8. Run Trade Button + Test Run
 **Status:** ✅ Complete
 
 Agent detail page (`/agents/[id]`) now has:
@@ -96,7 +122,7 @@ Agent detail page (`/agents/[id]`) now has:
 
 ---
 
-## 7. Rich HCS Execution History
+## 9. Rich HCS Execution History
 **Status:** ✅ Complete
 
 HCS Execution History panel on agent dashboard now shows:
@@ -107,7 +133,7 @@ HCS Execution History panel on agent dashboard now shows:
 
 ---
 
-## 8. MockDEX v2 — Real HTS Token Transfers
+## 10. MockDEX v2 — Real HTS Token Transfers
 **Status:** ✅ Complete (deployed testnet: MockDEX `0.0.8332937`, tUSDC `0.0.8332870`)
 
 `MockDEX.sol` v2 unified `executeSwap` with real on-chain token movement:
@@ -135,7 +161,7 @@ HCS Execution History panel on agent dashboard now shows:
 
 ---
 
-## 9. Live SaucerSwap Price Feed + MockDEX Reserve Sync
+## 11. Live SaucerSwap Price Feed + MockDEX Reserve Sync
 **Status:** ✅ Complete
 
 Every agent cycle now:
@@ -153,7 +179,7 @@ Both prices are logged to console for transparency:
 
 ---
 
-## 10. TradeApprovalModal — Live Quote + Real Swap Flow
+## 12. TradeApprovalModal — Live Quote + Real Swap Flow
 **Status:** ✅ Complete
 
 **Live quote preview** (no signing required):
@@ -174,7 +200,7 @@ Both prices are logged to console for transparency:
 
 ---
 
-## 11. NFT Marketplace — Full Buyer + Seller Flow
+## 13. NFT Marketplace — Full Buyer + Seller Flow
 **Status:** ✅ Complete
 
 ### Seller (agent owner) — "List as NFT" section on agent dashboard
@@ -201,7 +227,7 @@ Both prices are logged to console for transparency:
 
 ---
 
-## 12. HCS-10 OpenConvAI Registration
+## 14. HCS-10 OpenConvAI Registration
 **Status:** ✅ Complete (background)
 
 Each deployed agent is registered in the Hedera HCS-10 OpenConvAI standard:
@@ -232,7 +258,7 @@ The `TokenId`, `AccountId`, and `Hbar` SDK classes were imported into `agents/[a
 
 ---
 
-## 13. Full Deterministic Indicator Library (`indicators.ts`)
+## 16. Full Deterministic Indicator Library (`indicators.ts`)
 **Status:** ✅ Complete
 **File:** `apps/api/src/agent/indicators.ts`
 
@@ -253,7 +279,7 @@ A standalone, fully-tested indicator library — no third-party TA library depen
 
 ---
 
-## 14. Four Deterministic Trading Strategies (`strategies.ts`)
+## 17. Four Deterministic Trading Strategies (`strategies.ts`)
 **Status:** ✅ Complete
 **File:** `apps/api/src/agent/strategies.ts`
 
@@ -270,7 +296,7 @@ Each strategy is a pure function `(indicatorResult, price, riskConfig) → Signa
 
 ---
 
-## 15. Kelly Criterion Risk Manager (`riskManager.ts`)
+## 18. Kelly Criterion Risk Manager (`riskManager.ts`)
 **Status:** ✅ Complete
 **File:** `apps/api/src/agent/riskManager.ts`
 
@@ -286,7 +312,7 @@ Each strategy is a pure function `(indicatorResult, price, riskConfig) → Signa
 
 ---
 
-## 16. `agentRunner.ts` — Refactored to Deterministic Pipeline
+## 19. `agentRunner.ts` — Refactored to Deterministic Pipeline
 **Status:** ✅ Complete
 **File:** `apps/api/src/agent/agentRunner.ts`
 
@@ -309,7 +335,7 @@ Each strategy is a pure function `(indicatorResult, price, riskConfig) → Signa
 
 ---
 
-## 17. Performance Analytics Engine (`analytics/performance.ts`)
+## 20. Performance Analytics Engine (`analytics/performance.ts`)
 **Status:** ✅ Complete
 **File:** `apps/api/src/analytics/performance.ts`
 
@@ -325,7 +351,7 @@ Exposed via `GET /api/analytics/:agentId/performance`. All numbers are sourced f
 
 ---
 
-## 18. Analytics Dashboard (`/dashboard/[agentId]`)
+## 21. Analytics Dashboard (`/dashboard/[agentId]`)
 **Status:** ✅ Complete
 **File:** `apps/web/src/app/dashboard/[agentId]/page.tsx`
 
@@ -345,7 +371,7 @@ Auto-refreshes every 30 seconds. Accessible from the agent page via "View Analyt
 
 ---
 
-## 19. Backtesting Engine (`backtesting/backtester.ts`)
+## 22. Backtesting Engine (`backtesting/backtester.ts`)
 **Status:** ✅ Complete
 **File:** `apps/api/src/backtesting/backtester.ts`
 **Endpoint:** `POST /api/backtest`
@@ -362,7 +388,7 @@ Because the same `runStrategy()` and `calculateAllIndicators()` functions are us
 
 ---
 
-## 20. Leaderboard (`leaderboard.ts` + `GET /api/leaderboard`)
+## 23. Leaderboard (`leaderboard.ts` + `GET /api/leaderboard`)
 **Status:** ✅ Complete
 **File:** `apps/api/src/routes/leaderboard.ts`
 **Endpoint:** `GET /api/leaderboard?sortBy=winRate&limit=20`
@@ -376,7 +402,7 @@ Ranks all listed marketplace agents by performance:
 
 ---
 
-## 21. Marketplace — 6-Stat Cards, Equity Sparkline, Min-7-HCS Listing Gate
+## 24. Marketplace — 6-Stat Cards, Equity Sparkline, Min-7-HCS Listing Gate
 **Status:** ✅ Complete
 
 ### 24a. Enhanced Marketplace Cards (`apps/web/src/app/marketplace/page.tsx`)
@@ -398,7 +424,7 @@ These stats are returned by the updated `GET /api/marketplace` endpoint and sour
 
 ---
 
-## 22. TypeScript Fixes (ES2020, Listing Interface, TradeApprovalModal)
+## 25. TypeScript Fixes (ES2020, Listing Interface, TradeApprovalModal)
 **Status:** ✅ Complete
 
 Four targeted TypeScript fixes applied after the trading platform upgrade:

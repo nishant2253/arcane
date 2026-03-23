@@ -1,7 +1,7 @@
 /**
  * backtesting/backtester.ts — Historical strategy simulation engine
  *
- * Runs any TradeAgent strategy over historical OHLCV data.
+ * Runs any Arcane strategy over historical OHLCV data.
  * Simulates stop-loss/take-profit exits, tracks equity curve,
  * and returns the same performance metrics as the live dashboard.
  *

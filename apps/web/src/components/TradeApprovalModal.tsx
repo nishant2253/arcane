@@ -269,7 +269,7 @@ export function TradeApprovalModal({
         <div className="absolute top-0 right-0 w-32 h-32 bg-[#00A9BA]/10 blur-[60px] rounded-full -mr-16 -mt-16" />
 
         {!executing && !txHash && (
-          <button onClick={onReject} className="absolute top-4 right-4 p-2 text-gray-500 hover:text-white transition-colors">
+          <button onClick={onReject} className="absolute top-4 right-4 p-2 text-gray-400 hover:text-white transition-colors">
             <XIcon size={20} />
           </button>
         )}
@@ -308,7 +308,7 @@ export function TradeApprovalModal({
               </div>
               <div className="flex items-center justify-between bg-white/5 rounded-xl px-4 py-3">
                 <span className="text-[11px] text-gray-400 uppercase tracking-wider">You receive</span>
-                <span className={`font-mono font-bold ${quoteLoading ? 'text-gray-500' : 'text-[#00A9BA]'}`}>
+                <span className={`font-mono font-bold ${quoteLoading ? 'text-gray-400' : 'text-[#00A9BA]'}`}>
                   {receiveLabel}
                 </span>
               </div>
@@ -317,11 +317,11 @@ export function TradeApprovalModal({
             {/* Price + impact */}
             <div className="grid grid-cols-2 gap-2 pt-1">
               <div className="text-center">
-                <p className="text-[10px] text-gray-500 mb-0.5">Pool price</p>
+                <p className="text-[10px] text-gray-400 mb-0.5">Pool price</p>
                 <p className="text-[11px] text-gray-300 font-mono">{pricePerHbar}</p>
               </div>
               <div className="text-center">
-                <p className="text-[10px] text-gray-500 mb-0.5">Price impact</p>
+                <p className="text-[10px] text-gray-400 mb-0.5">Price impact</p>
                 <p className={`text-[11px] font-mono ${!quote || quote.priceImpactBps < 50 ? 'text-green-400' : 'text-yellow-400'}`}>
                   {quoteLoading ? '...' : quote ? `${(quote.priceImpactBps / 100).toFixed(3)}%` : 'n/a'}
                 </p>
@@ -334,7 +334,7 @@ export function TradeApprovalModal({
             <div className="flex items-center gap-2 mb-4">
               <div className={`flex-1 h-1.5 rounded-full ${buyStep === 'allowance' ? 'bg-[#00A9BA]' : 'bg-[#00A9BA]/40'}`} />
               <div className={`flex-1 h-1.5 rounded-full ${buyStep === 'swap' ? 'bg-[#00A9BA]' : 'bg-white/10'}`} />
-              <span className="text-[10px] text-gray-500 ml-1">
+              <span className="text-[10px] text-gray-400 ml-1">
                 {buyStep === 'allowance' ? 'Step 1/2' : 'Step 2/2'}
               </span>
             </div>
@@ -373,7 +373,7 @@ export function TradeApprovalModal({
               </div>
               <p className="text-green-400 font-bold mb-1">Proof Chain Complete ✓</p>
               <p className="text-[10px] text-gray-400 mb-1">HCS #{hcsSequenceNum} → on-chain swap → balances updated</p>
-              <p className="text-[10px] text-gray-500 font-mono truncate px-4">{txHash}</p>
+              <p className="text-[10px] text-gray-400 font-mono truncate px-4">{txHash}</p>
               <a
                 href={`https://hashscan.io/${NETWORK}/transaction/${txHash}`}
                 target="_blank"

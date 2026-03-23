@@ -34,7 +34,7 @@ const ARTIFACT_PATH = path.resolve(
 
 async function verifyDeployment(): Promise<void> {
   console.log('');
-  console.log('🔍 TradeAgent — AgentRegistry Deployment Verification');
+  console.log('🔍 Arcane — AgentRegistry Deployment Verification');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log('');
 

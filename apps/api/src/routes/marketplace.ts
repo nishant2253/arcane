@@ -20,6 +20,12 @@ import {
   getCollectionStats,
   createAgentTopic,
 } from '@tradeagent/hedera';
+import {
+  TransferTransaction,
+  TokenId,
+  NftId,
+  AccountId,
+} from '@hashgraph/sdk';
 
 const router = Router();
 
@@ -181,19 +187,20 @@ router.post('/list', async (req: Request, res: Response) => {
       performance:  'See HCS topic for live data',
       hcsTopicId:   agent.hcsTopicId,
       hfsConfigId:  agent.hfsConfigId ?? '',
-      image:        ipfsCID ? `ipfs://${ipfsCID}` : 'ipfs://QmTradeAgentDefault',
+      image:        ipfsCID ? `ipfs://${ipfsCID}` : 'ipfs://QmArcaneDefault',
       creator:      agent.ownerId,
       createdAt:    new Date().toISOString(),
     }, operatorKey);
 
-    // Update DB
+    // Update DB — store creatorId so secondary-sale royalties route correctly
     await prisma.agent.update({
       where: { id: agentId },
       data:  {
         listed:       true,
         serialNumber,
         priceHbar,
-        ipfsCID: ipfsCID ?? null,
+        ipfsCID:   ipfsCID ?? null,
+        creatorId: agent.ownerId,   // persist original creator for royalty routing
       },
     });
 
@@ -238,9 +245,11 @@ router.get('/:agentId', async (req: Request, res: Response) => {
     const { executions, ...agentRest } = agent;
     res.json({
       ...agentRest,
-      // Return a count, not the raw Prisma array — the frontend expects a number
       executions: executions.length,
       royaltyPct: 5,
+      // creatorId = original minter; equals ownerId for initial listings,
+      // but differs on secondary sales so the frontend can route 5% correctly.
+      creatorId: agent.creatorId ?? agent.ownerId,
       links: {
         nft:   agent.serialNumber
           ? `https://hashscan.io/${network}/token/${process.env.STRATEGY_TOKEN_ID}/${agent.serialNumber}`
@@ -269,8 +278,8 @@ router.post('/post-purchase', async (req: Request, res: Response) => {
       txId:           string;
     };
 
-    if (!serialNumber || !buyerAccountId || !txId) {
-      return res.status(400).json({ error: 'tokenId, serialNumber, buyerAccountId, txId required' });
+    if (!serialNumber || !buyerAccountId) {
+      return res.status(400).json({ error: 'tokenId, serialNumber, buyerAccountId required' });
     }
 
     // 1. Find the original agent by serialNumber
@@ -282,12 +291,40 @@ router.post('/post-purchase', async (req: Request, res: Response) => {
     }
 
     // 2. Create a new HCS topic for the buyer (operator pays — background tx)
-    const client      = createHederaClient();
-    const operatorKey = getOperatorKey();
+    const client        = createHederaClient();
+    const operatorKey   = getOperatorKey();
+    const operatorAcctId = process.env.OPERATOR_ACCOUNT_ID!;
+
+    // 2a. Transfer NFT from operator/treasury → buyer using operator key.
+    //     The NFT was minted to the treasury (operator) at listing time via
+    //     mintAgentNFT → TokenMintTransaction. The buyer already paid HBAR
+    //     directly to the seller in Step 2 of the frontend flow. This step
+    //     completes the exchange on the NFT side.
+    if (tokenId && serialNumber) {
+      try {
+        const nftTransferTx = await new TransferTransaction()
+          .addNftTransfer(
+            new NftId(TokenId.fromString(tokenId), serialNumber),
+            AccountId.fromString(operatorAcctId),
+            AccountId.fromString(buyerAccountId),
+          )
+          .freezeWith(client)
+          .sign(operatorKey);
+        const nftTxResponse = await nftTransferTx.execute(client);
+        await nftTxResponse.getReceipt(client);
+        console.log(`[Marketplace] NFT #${serialNumber} transferred from operator to ${buyerAccountId}`);
+      } catch (nftErr) {
+        // Log but don't abort — agent clone still proceeds so the buyer
+        // gets a working copy even if the on-chain NFT transfer fails.
+        console.error('[Marketplace] NFT transfer failed (non-fatal):', nftErr);
+      }
+    }
+
     const newAgentId  = require('crypto').randomUUID();
     const newHcsTopic = await createAgentTopic(client, newAgentId, operatorKey);
 
-    // 3. Clone agent in DB with buyer as new owner
+    // 3. Clone agent in DB with buyer as new owner.
+    //    Preserve creatorId from original so secondary-sale royalties work.
     const cloned = await prisma.agent.create({
       data: {
         id:             newAgentId,
@@ -301,15 +338,46 @@ router.post('/post-purchase', async (req: Request, res: Response) => {
         hfsConfigId:    original.hfsConfigId,
         contractTxId:   txId,
         executionMode:  original.executionMode,
-        active:         false,   // buyer must activate separately
+        active:         false,
         listed:         false,
         tradingBudgetHbar: 0,
+        // Propagate original creator so royalties always route back to them
+        creatorId:      original.creatorId ?? original.ownerId,
       },
     });
 
     // 4. Schedule BullMQ job for the cloned agent
     const { scheduleAgentJob } = await import('../agent/agentWorker');
     await scheduleAgentJob(newAgentId, newHcsTopic);
+
+    // 5. Log an NFT_SALE transaction for the seller so their wallet history
+    //    reflects the incoming HBAR without needing a wallet refresh.
+    const network = process.env.HEDERA_NETWORK || 'testnet';
+    const sellerAccountId = original.ownerId;
+    const saleHashscanUrl = txId
+      ? `https://hashscan.io/${network}/transaction/${txId.replace('@', '-').replace(/(\d+)\.(\d+)$/, '$1-$2')}`
+      : `https://hashscan.io/${network}/topic/${newHcsTopic}`;
+    try {
+      await prisma.transaction.create({
+        data: {
+          ownerId:    sellerAccountId,
+          agentId:    original.id,
+          type:       'NFT_SALE',
+          txId:       txId || `nft-sale-${newAgentId}`,
+          status:     'SUCCESS',
+          hashscanUrl: saleHashscanUrl,
+          details: {
+            agentName:      original.name,
+            priceHbar:      original.priceHbar,
+            buyerAccountId,
+            serialNumber,
+            royaltyNote:    '5% royalty on all secondary resales',
+          },
+        },
+      });
+    } catch (logErr) {
+      console.warn('[Marketplace] Failed to log NFT_SALE transaction (non-fatal):', logErr);
+    }
 
     client.close();
 

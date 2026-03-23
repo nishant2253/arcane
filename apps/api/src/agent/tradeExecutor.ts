@@ -42,7 +42,7 @@ export async function executeTradeSignal(
 ): Promise<TradeResult> {
   const { signal, agentId, hcsTopicId, hederaClient } = params;
 
-  console.log(`[TradeAgent] Confidence: ${params.confidence}%`);
+  console.log(`[Arcane] Confidence: ${params.confidence}%`);
 
   // ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
   // STEP 0 — CHECK EXECUTION MODE
@@ -54,11 +54,11 @@ export async function executeTradeSignal(
     select: { executionMode: true }
   });
   const mode = agent?.executionMode || 'MANUAL';
-  console.log(`[TradeAgent] Execution Mode: ${mode}`);
+  console.log(`[Arcane] Execution Mode: ${mode}`);
 
   // ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
   // STEP 1 — LOG TO HCS FIRST (BEFORE ANY TRADE)
-  // This is the core TradeAgent invariant.
+  // This is the core Arcane invariant.
   // The aBFT timestamp proves the decision preceded the trade.
   // If this fails, we DO NOT execute the trade.
   // ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■

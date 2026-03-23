@@ -26,7 +26,7 @@ const TEST_HCS_TOPIC = process.env.TEST_HCS_TOPIC_ID || '0.0.8316382';
 
 async function testAgent() {
   console.log('');
-  console.log('🤖 TradeAgent — Phase 4 AI Engine Test (DRY RUN)');
+  console.log('🤖 Arcane — Phase 4 AI Engine Test (DRY RUN)');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log('');
 

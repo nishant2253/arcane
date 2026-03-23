@@ -47,7 +47,7 @@ export interface HCSSubmitResult {
  * Called once when the agent is first registered.
  *
  * - submitKey = operator's public key → only our backend can post
- * - memo = TradeAgent:{agentId} → searchable on HashScan
+ * - memo = Arcane:{agentId} → searchable on HashScan
  *
  * @returns Hedera topic ID string ("0.0.XXXXX")
  */
@@ -57,7 +57,7 @@ export async function createAgentTopic(
   operatorKey: PrivateKey
 ): Promise<string> {
   const tx = await new TopicCreateTransaction()
-    .setTopicMemo(`TradeAgent:${agentId}`)
+    .setTopicMemo(`Arcane:${agentId}`)
     .setSubmitKey(operatorKey.publicKey)  // Only backend can post
     .setMaxTransactionFee(new Hbar(2))
     .execute(client);

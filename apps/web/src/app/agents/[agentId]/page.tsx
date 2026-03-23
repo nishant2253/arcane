@@ -348,7 +348,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
     return (
       <div className="min-h-[calc(100vh-64px)] flex items-center justify-center">
         <div className="text-center">
-          <p style={{ color: '#334155' }}>Agent not found</p>
+          <p style={{ color: '#94A3B8' }}>Agent not found</p>
           <Link href="/wallet" className="text-sm mt-2 block" style={{ color: '#00A9BA' }}>← Back to Wallet</Link>
         </div>
       </div>
@@ -361,7 +361,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
       <Link
         href="/wallet"
         className="flex items-center gap-2 text-sm mb-6 cursor-pointer transition-colors duration-200 hover:text-white w-fit"
-        style={{ color: '#475569' }}
+        style={{ color: '#94A3B8' }}
       >
         <ArrowLeftIcon size={14} />
         Back to Wallet
@@ -394,7 +394,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
                 {agent.active ? 'Active' : 'Paused'}
               </span>
             </div>
-            <p className="text-sm" style={{ color: '#475569' }}>{agent.strategyType.replace('_', ' ')} · {agent.ownerId}</p>
+            <p className="text-sm" style={{ color: '#94A3B8' }}>{agent.strategyType.replace('_', ' ')} · {agent.ownerId}</p>
             
             {/* Mode Switcher */}
             <div className="mt-4 flex items-center gap-2">
@@ -412,7 +412,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
                     className={`px-4 py-2 rounded-lg transition-all duration-200 text-left ${
                       agent.executionMode === m.id 
                         ? 'bg-[#00A9BA] text-white shadow-lg shadow-[#00A9BA]/20' 
-                        : 'text-slate-500 hover:text-slate-300'
+                        : 'text-slate-300 hover:text-slate-300'
                     }`}
                   >
                     <p className="text-xs font-bold uppercase tracking-wider leading-none">{m.label}</p>
@@ -441,7 +441,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
               </button>
               {agent.executionMode === 'AUTO' && (
                 <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10"
-                  style={{ background: '#0F172A', border: '1px solid rgba(255,255,255,0.08)', color: '#64748B' }}>
+                  style={{ background: '#0F172A', border: '1px solid rgba(255,255,255,0.08)', color: '#94A3B8' }}>
                   Disabled in Auto mode — agent signs automatically
                 </div>
               )}
@@ -462,7 +462,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
               style={{
                 background: 'rgba(255,255,255,0.03)',
                 border:     '1px solid rgba(255,255,255,0.08)',
-                color:      '#64748B',
+                color:      '#94A3B8',
               }}
             >
               <PauseIcon size={14} />
@@ -487,7 +487,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
                 <Icon size={13} style={{ color: '#00A9BA' }} />
               </div>
               <div className="min-w-0">
-                <p className="text-xs mb-0.5" style={{ color: '#334155' }}>{label}</p>
+                <p className="text-xs mb-0.5" style={{ color: '#94A3B8' }}>{label}</p>
                 {value ? (
                   <a
                     href={href}
@@ -500,7 +500,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
                     <ExternalLinkIcon size={10} className="flex-shrink-0" />
                   </a>
                 ) : (
-                  <span className="text-xs" style={{ color: '#1E293B' }}>—</span>
+                  <span className="text-xs" style={{ color: '#94A3B8' }}>—</span>
                 )}
               </div>
             </div>
@@ -520,7 +520,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
               href={`https://hashscan.io/${NETWORK}/account/${agent.agentAccountId}`}
               target="_blank" rel="noopener noreferrer"
               className="text-[10px] flex items-center gap-1 transition-colors hover:text-white"
-              style={{ color: '#334155' }}
+              style={{ color: '#94A3B8' }}
             >
               {agent.agentAccountId} <ExternalLinkIcon size={10} />
             </a>
@@ -530,28 +530,28 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
               {/* HBAR balance */}
               <div className="rounded-xl p-3" style={{ background: 'rgba(0,169,186,0.06)', border: '1px solid rgba(0,169,186,0.12)' }}>
-                <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: '#334155' }}>HBAR Balance</p>
+                <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: '#94A3B8' }}>HBAR Balance</p>
                 <p className="text-lg font-bold font-mono" style={{ color: '#E2E8F0' }}>{portfolio.hbar.toFixed(4)}</p>
-                <p className="text-[10px]" style={{ color: '#475569' }}>ℏ</p>
+                <p className="text-[10px]" style={{ color: '#94A3B8' }}>ℏ</p>
               </div>
               {/* tUSDT balance — sourced from user wallet (manual swaps credit the signer) */}
               <div className="rounded-xl p-3" style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.12)' }}>
-                <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: '#334155' }}>tUSDT Balance</p>
+                <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: '#94A3B8' }}>tUSDT Balance</p>
                 <p className="text-lg font-bold font-mono" style={{ color: '#10B981' }}>{portfolio.tusdt.toFixed(4)}</p>
-                <p className="text-[10px]" style={{ color: '#475569' }}>tUSDT (wallet)</p>
+                <p className="text-[10px]" style={{ color: '#94A3B8' }}>tUSDT (wallet)</p>
               </div>
               {/* Budget */}
               <div className="rounded-xl p-3" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: '#334155' }}>Initial Budget</p>
+                <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: '#94A3B8' }}>Initial Budget</p>
                 <p className="text-lg font-bold font-mono" style={{ color: '#94A3B8' }}>{agent.tradingBudgetHbar.toFixed(2)}</p>
-                <p className="text-[10px]" style={{ color: '#475569' }}>ℏ funded</p>
+                <p className="text-[10px]" style={{ color: '#94A3B8' }}>ℏ funded</p>
               </div>
               {/* P&L */}
               <div className="rounded-xl p-3" style={{
                 background: portfolio.pnlPct === null ? 'rgba(255,255,255,0.02)' : portfolio.pnlPct >= 0 ? 'rgba(16,185,129,0.06)' : 'rgba(239,68,68,0.06)',
                 border: `1px solid ${portfolio.pnlPct === null ? 'rgba(255,255,255,0.06)' : portfolio.pnlPct >= 0 ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)'}`,
               }}>
-                <p className="text-[10px] uppercase tracking-wider mb-1 flex items-center gap-1" style={{ color: '#334155' }}>
+                <p className="text-[10px] uppercase tracking-wider mb-1 flex items-center gap-1" style={{ color: '#94A3B8' }}>
                   <TrendingUpIcon size={10} /> P&amp;L (HBAR)
                 </p>
                 <p className="text-lg font-bold font-mono" style={{
@@ -559,11 +559,11 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
                 }}>
                   {portfolio.pnlPct === null ? '—' : `${portfolio.pnlPct >= 0 ? '+' : ''}${portfolio.pnlPct}%`}
                 </p>
-                <p className="text-[10px]" style={{ color: '#475569' }}>vs initial budget</p>
+                <p className="text-[10px]" style={{ color: '#94A3B8' }}>vs initial budget</p>
               </div>
             </div>
           ) : (
-            <div className="flex items-center gap-2 py-4" style={{ color: '#334155' }}>
+            <div className="flex items-center gap-2 py-4" style={{ color: '#94A3B8' }}>
               <Loader2 size={14} className="animate-spin" />
               <span className="text-xs">Fetching agent balances…</span>
             </div>
@@ -571,7 +571,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
 
           {/* Withdraw button */}
           <div className="flex items-center justify-between pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-            <p className="text-[10px]" style={{ color: '#1E293B' }}>
+            <p className="text-[10px]" style={{ color: '#94A3B8' }}>
               Operator-signed withdrawal — no HashPack required. Funds go back to <span style={{ color: '#00A9BA' }}>{agent.ownerId}</span>.
             </p>
             <button
@@ -661,7 +661,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
                       onChange={e => setListingPrice(e.target.value)}
                       className="w-full px-3 py-2.5 rounded-xl text-sm font-mono text-white placeholder-gray-600 bg-black/30 border border-white/10 focus:border-[#00A9BA]/50 outline-none"
                     />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-gray-500">HBAR</span>
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-gray-400">HBAR</span>
                   </div>
                   <button
                     onClick={listOnMarketplace}
@@ -686,7 +686,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
             <ActivityIcon size={16} style={{ color: '#00A9BA' }} />
             HCS Execution History
           </h2>
-          <div className="flex items-center gap-2 text-xs" style={{ color: '#334155' }}>
+          <div className="flex items-center gap-2 text-xs" style={{ color: '#94A3B8' }}>
             <ShieldCheckIcon size={12} style={{ color: '#00A9BA' }} />
             Source: Hedera Mirror Node · aBFT guaranteed
           </div>
@@ -694,9 +694,9 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
 
         {history.length === 0 ? (
           <div className="py-12 text-center">
-            <ClockIcon size={28} className="mx-auto mb-3" style={{ color: '#1C2333' }} />
-            <p className="text-sm" style={{ color: '#334155' }}>No executions yet.</p>
-            <p className="text-xs mt-1" style={{ color: '#1E293B' }}>
+            <ClockIcon size={28} className="mx-auto mb-3" style={{ color: '#94A3B8' }} />
+            <p className="text-sm" style={{ color: '#94A3B8' }}>No executions yet.</p>
+            <p className="text-xs mt-1" style={{ color: '#94A3B8' }}>
               {agent.executionMode === 'AUTO'
                 ? 'Agent is in Auto mode — trades will execute automatically based on the BullMQ schedule.'
                 : 'Click "Run Trade" to execute a live cycle or "Test Run · no swap" to simulate without spending HBAR.'}
@@ -751,32 +751,32 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
                         <span className="text-xs font-mono" style={{ color: '#E2E8F0' }}>Seq #{msg.seq}</span>
 
                         {!isExecResult && msg.decision?.confidence != null && (
-                          <span className="text-xs" style={{ color: '#475569' }}>
+                          <span className="text-xs" style={{ color: '#94A3B8' }}>
                             Confidence: <span style={{ color: '#94A3B8' }}>{msg.decision.confidence}%</span>
                           </span>
                         )}
                         {!isExecResult && msg.decision?.price != null && (
-                          <span className="text-xs" style={{ color: '#475569' }}>
+                          <span className="text-xs" style={{ color: '#94A3B8' }}>
                             Price: <span style={{ color: '#94A3B8' }}>${msg.decision.price.toFixed(6)}</span>
                           </span>
                         )}
 
                         {/* Swap details */}
                         {isExecResult && swapDir && (
-                          <span className="flex items-center gap-1 text-xs" style={{ color: '#64748B' }}>
+                          <span className="flex items-center gap-1 text-xs" style={{ color: '#94A3B8' }}>
                             <ArrowRightLeftIcon size={11} style={{ color: '#10B981' }} />
                             {swapDir === 'HBAR_TO_USDC' ? 'HBAR → tUSDT' : 'tUSDT → HBAR'}
                           </span>
                         )}
                         {isExecResult && amtIn != null && amtOut != null && (
-                          <span className="text-xs" style={{ color: '#475569' }}>
+                          <span className="text-xs" style={{ color: '#94A3B8' }}>
                             <span style={{ color: '#94A3B8' }}>{(Number(amtIn) / 1e8).toFixed(4)}</span>
                             {' → '}
                             <span style={{ color: '#10B981' }}>{(Number(amtOut) / 1e6).toFixed(4)}</span>
                           </span>
                         )}
                         {isExecResult && slippageBps != null && (
-                          <span className="text-xs" style={{ color: '#475569' }}>
+                          <span className="text-xs" style={{ color: '#94A3B8' }}>
                             Slippage: <span style={{ color: '#94A3B8' }}>{(Number(slippageBps) / 100).toFixed(2)}%</span>
                           </span>
                         )}
@@ -784,7 +784,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
 
                       {/* Reasoning (decision) or tx hash (execution) */}
                       {!isExecResult && msg.decision?.reasoning && (
-                        <p className="text-xs leading-relaxed mb-1.5" style={{ color: '#334155' }}>
+                        <p className="text-xs leading-relaxed mb-1.5" style={{ color: '#94A3B8' }}>
                           {msg.decision.reasoning}
                         </p>
                       )}
@@ -818,7 +818,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
 
                     {/* Timestamp + HCS link */}
                     <div className="flex flex-col items-end gap-1 flex-shrink-0 text-right">
-                      <span className="text-[10px]" style={{ color: '#475569' }}>
+                      <span className="text-[10px]" style={{ color: '#94A3B8' }}>
                         {relativeTime(msg.timestamp)}
                       </span>
                       <a
@@ -826,7 +826,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex items-center gap-1 text-[10px] transition-colors hover:text-white"
-                        style={{ color: '#334155' }}
+                        style={{ color: '#94A3B8' }}
                       >
                         HashScan <ExternalLinkIcon size={10} />
                       </a>
@@ -841,7 +841,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
         {/* Source attestation */}
         <div
           className="mt-5 pt-4 flex items-center gap-2 text-xs"
-          style={{ borderTop: '1px solid rgba(255,255,255,0.04)', color: '#1E293B' }}
+          style={{ borderTop: '1px solid rgba(255,255,255,0.04)', color: '#94A3B8' }}
         >
           <ShieldCheckIcon size={12} style={{ color: '#00A9BA' }} />
           Data sourced directly from{' '}

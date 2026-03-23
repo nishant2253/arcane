@@ -1,7 +1,7 @@
 {
   "name": "@tradeagent/api",
   "version": "1.0.0",
-  "description": "TradeAgent — Backend API (Node.js + Express + Supabase + BullMQ)",
+  "description": "Arcane — Backend API (Node.js + Express + Supabase + BullMQ)",
   "private": true,
   "main": "dist/index.js",
   "scripts": {

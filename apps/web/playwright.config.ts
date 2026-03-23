@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * Playwright configuration for TradeAgent frontend e2e tests.
+ * Playwright configuration for Arcane frontend e2e tests.
  * https://playwright.dev/docs/test-configuration
  */
 export default defineConfig({

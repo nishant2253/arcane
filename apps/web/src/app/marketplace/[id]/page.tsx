@@ -3,9 +3,10 @@
 import { useEffect, useState, use } from 'react';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
-import {
+import { 
   ArrowLeftIcon, ExternalLinkIcon, ShoppingCartIcon,
   ShieldCheckIcon, TrendingUpIcon, ActivityIcon, BarChart2Icon,
+  BotIcon,
 } from 'lucide-react';
 import { hashscanUrl, fmtTimestamp } from '@/lib/utils';
 
@@ -16,6 +17,7 @@ interface ListingDetail {
   id:            string;
   name:          string;
   ownerId:       string;
+  creatorId:     string;   // original minter — may differ from ownerId on secondary sales
   strategyType:  string;
   hcsTopicId:    string;
   serialNumber:  number | null;
@@ -47,7 +49,7 @@ function AgentAvatar({ name, size = 64 }: { name: string; size?: number }) {
 
 import { 
   TransferTransaction, TokenAssociateTransaction,
-  TokenId, NftId, AccountId, Hbar,
+  TokenId, AccountId, Hbar,
 } from "@hashgraph/sdk";
 import { useRouter } from 'next/navigation';
 import { useWalletStore } from '@/stores/walletStore';
@@ -76,6 +78,29 @@ export default function MarketplaceDetailPage({ params }: { params: Promise<{ id
       .finally(() => setLoading(false));
   }, [id]);
 
+  /**
+   * Poll Mirror Node until a transaction is confirmed (or maxRetries exhausted).
+   * Converts Hedera txId format "0.0.X@secs.nanos" → "0.0.X-secs-nanos" for the API.
+   */
+  const waitForTxOnMirrorNode = async (rawTxId: string, mnBase: string): Promise<void> => {
+    // Mirror Node expects: 0.0.12345-1234567890-123456789
+    const mnTxId = rawTxId.replace('@', '-').replace(/(\d+)\.(\d+)$/, '$1-$2');
+    for (let attempt = 0; attempt < 12; attempt++) {
+      await new Promise(r => setTimeout(r, 3000));
+      try {
+        const res = await fetch(`${mnBase}/transactions/${mnTxId}`);
+        if (!res.ok) continue;
+        const data = await res.json() as any;
+        const result: string = data?.transactions?.[0]?.result ?? '';
+        if (result === 'SUCCESS') return;
+        if (result && result !== 'SUCCESS') throw new Error(`Transaction rejected on-chain: ${result}`);
+      } catch (e: any) {
+        if (e.message?.startsWith('Transaction rejected')) throw e;
+      }
+    }
+    // Timed out confirming — proceed optimistically (tx was submitted by the SDK)
+  };
+
   const handleBuy = async () => {
     if (!signer || !accountId || !listing || !listing.serialNumber) return;
     
@@ -84,38 +109,78 @@ export default function MarketplaceDetailPage({ params }: { params: Promise<{ id
       const strategyTokenId = TokenId.fromString(STRATEGY_TOKEN_ID);
       const buyerAcctId     = AccountId.fromString(accountId);
       const sellerAcctId    = AccountId.fromString(listing.ownerId);
-      const priceTinybars   = Math.floor((listing.priceHbar || 0) * 1e8);
+      const totalTinybars   = Math.floor((listing.priceHbar || 0) * 1e8);
+      const mnBase          = `https://${NETWORK}.mirrornode.hedera.com/api/v1`;
+
+      // Compute royalty split: 5% to original creator, 95% to current seller.
+      // For initial sales creatorId === ownerId, so seller gets 100%.
+      const creatorId       = listing.creatorId ?? listing.ownerId;
+      const isSecondarySale = creatorId !== listing.ownerId;
+      const royaltyTinybars = isSecondarySale ? Math.floor(totalTinybars * 0.05) : 0;
+      const sellerTinybars  = totalTinybars - royaltyTinybars;
 
       // ── Step 1: Associate strategy NFT token with buyer's wallet ──
-      // Required before HTS can transfer the NFT to this account.
-      setBuyPhase('Associating strategy NFT token…');
+      setBuyPhase('Checking token association…');
+      let alreadyAssociated = false;
       try {
-        const assocTx = await new TokenAssociateTransaction()
-          .setAccountId(buyerAcctId)
-          .setTokenIds([strategyTokenId])
-          .setMaxTransactionFee(new Hbar(2))
-          .freezeWithSigner(signer);
-        const assocResp = await assocTx.executeWithSigner(signer);
-        await assocResp.getReceiptWithSigner(signer);
-      } catch (assocErr: any) {
-        // TOKEN_ALREADY_ASSOCIATED_TO_ACCOUNT is fine — skip
-        if (!assocErr?.message?.includes('TOKEN_ALREADY_ASSOCIATED')) {
-          throw assocErr;
+        const checkRes  = await fetch(`${mnBase}/accounts/${accountId}/tokens?token.id=${STRATEGY_TOKEN_ID}`);
+        const checkData = await checkRes.json() as any;
+        alreadyAssociated = (checkData?.tokens?.length ?? 0) > 0;
+      } catch { /* Mirror Node unavailable — fall through to attempt association */ }
+
+      if (!alreadyAssociated) {
+        setBuyPhase('Associating strategy NFT token… (check your HashPack wallet)');
+        try {
+          const assocTx = await new TokenAssociateTransaction()
+            .setAccountId(buyerAcctId)
+            .setTokenIds([strategyTokenId])
+            .setMaxTransactionFee(new Hbar(2))
+            .freezeWithSigner(signer);
+          const assocResp = await assocTx.executeWithSigner(signer);
+          const assocTxId = assocResp.transactionId?.toString();
+          if (assocTxId) {
+            setBuyPhase('Waiting for association confirmation…');
+            await waitForTxOnMirrorNode(assocTxId, mnBase);
+          }
+        } catch (assocErr: any) {
+          if (!assocErr?.message?.includes('TOKEN_ALREADY_ASSOCIATED') &&
+              !assocErr?.status?.toString().includes('TOKEN_ALREADY_ASSOCIATED')) {
+            throw assocErr;
+          }
         }
       }
 
-      // ── Step 2: Atomic swap — HBAR from buyer → seller, NFT from seller → buyer
-      // Hedera HTS auto-deducts 5% royalty at protocol level (buyer pays gross amount)
-      setBuyPhase('Confirming NFT purchase on Hedera…');
-      const atomicSwapTx = await new TransferTransaction()
-        .addHbarTransfer(buyerAcctId,  Hbar.fromTinybars(-priceTinybars))
-        .addHbarTransfer(sellerAcctId, Hbar.fromTinybars(priceTinybars))
-        .addNftTransfer(new NftId(strategyTokenId, listing.serialNumber), sellerAcctId, buyerAcctId)
-        .setMaxTransactionFee(new Hbar(10))
-        .freezeWithSigner(signer);
+      // ── Step 2: HBAR payment with royalty split ──────────────────
+      // • Initial sale  (creatorId = ownerId): 100% → seller
+      // • Secondary sale (creatorId ≠ ownerId): 95% → seller, 5% → original creator
+      let txId = '';
+      if (totalTinybars > 0) {
+        setBuyPhase(
+          isSecondarySale
+            ? `Confirming HBAR payment (95% to seller + 5% royalty to creator)… (check HashPack)`
+            : 'Confirming HBAR payment… (check your HashPack wallet)'
+        );
 
-      const response = await atomicSwapTx.executeWithSigner(signer);
-      await response.getReceiptWithSigner(signer);
+        const transferTx = new TransferTransaction()
+          .addHbarTransfer(buyerAcctId, Hbar.fromTinybars(-totalTinybars))
+          .addHbarTransfer(sellerAcctId, Hbar.fromTinybars(sellerTinybars))
+          .setMaxTransactionFee(new Hbar(5));
+
+        // Add royalty leg for secondary sales
+        if (isSecondarySale && royaltyTinybars > 0) {
+          transferTx.addHbarTransfer(
+            AccountId.fromString(creatorId),
+            Hbar.fromTinybars(royaltyTinybars),
+          );
+        }
+
+        const response = await (await transferTx.freezeWithSigner(signer)).executeWithSigner(signer);
+        txId = response.transactionId?.toString() ?? '';
+        if (txId) {
+          setBuyPhase('Waiting for payment confirmation…');
+          await waitForTxOnMirrorNode(txId, mnBase);
+        }
+      }
 
       // ── Step 3: Tell backend to clone agent for buyer ─────────────
       setBuyPhase('Setting up your agent copy…');
@@ -126,12 +191,40 @@ export default function MarketplaceDetailPage({ params }: { params: Promise<{ id
           tokenId:        STRATEGY_TOKEN_ID,
           serialNumber:   listing.serialNumber,
           buyerAccountId: accountId,
-          txId:           response.transactionId?.toString() ?? '',
+          txId,
         }),
       });
       if (!postRes.ok) throw new Error('Backend post-purchase failed');
       const postData = await postRes.json();
       setClonedId(postData.clonedAgentId);
+
+      // ── Step 4: Log buyer's NFT_PURCHASE transaction ──────────────
+      const hashscanTxUrl = txId
+        ? `https://hashscan.io/${NETWORK}/transaction/${txId.replace('@', '-').replace(/(\d+)\.(\d+)$/, '$1-$2')}`
+        : `https://hashscan.io/${NETWORK}/topic/${listing.hcsTopicId}`;
+      try {
+        await fetch(`${API_URL}/api/transactions`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ownerId:    accountId,
+            agentId:    listing.id,
+            type:       'NFT_PURCHASE',
+            txId:       txId || `nft-purchase-${listing.serialNumber}`,
+            status:     'SUCCESS',
+            hashscanUrl: hashscanTxUrl,
+            details: {
+              agentName:     listing.name,
+              priceHbar:     listing.priceHbar,
+              serialNumber:  listing.serialNumber,
+              sellerAccountId: listing.ownerId,
+              royaltyPaid:   isSecondarySale
+                ? `${(royaltyTinybars / 1e8).toFixed(4)} ℏ to ${creatorId}`
+                : 'Initial sale — no royalty split',
+            },
+          }),
+        });
+      } catch { /* non-fatal */ }
 
       setBought(true);
       setBuyPhase('');
@@ -172,7 +265,7 @@ export default function MarketplaceDetailPage({ params }: { params: Promise<{ id
     return (
       <div className="min-h-[calc(100vh-64px)] flex items-center justify-center">
         <div className="text-center">
-          <p style={{ color: '#334155' }}>Listing not found</p>
+          <p style={{ color: '#94A3B8' }}>Listing not found</p>
           <Link href="/marketplace" className="text-sm mt-2 block" style={{ color: '#00A9BA' }}>
             ← Back to Marketplace
           </Link>
@@ -180,6 +273,10 @@ export default function MarketplaceDetailPage({ params }: { params: Promise<{ id
       </div>
     );
   }
+
+  const isOwner         = !!accountId && accountId === listing.ownerId;
+  const creatorId       = listing.creatorId ?? listing.ownerId;
+  const isSecondarySale = creatorId !== listing.ownerId;
 
   const signals = listing.recentSignals ?? [];
   const buySell = signals.reduce((acc, s) => {
@@ -194,7 +291,7 @@ export default function MarketplaceDetailPage({ params }: { params: Promise<{ id
       <Link
         href="/marketplace"
         className="flex items-center gap-2 text-sm mb-6 cursor-pointer transition-colors duration-200 hover:text-white w-fit"
-        style={{ color: '#475569' }}
+        style={{ color: '#94A3B8' }}
       >
         <ArrowLeftIcon size={14} />
         Back to Marketplace
@@ -215,7 +312,7 @@ export default function MarketplaceDetailPage({ params }: { params: Promise<{ id
                 <h1 className="text-2xl font-display font-bold mb-1" style={{ color: '#E2E8F0' }}>
                   {listing.name}
                 </h1>
-                <p className="text-sm mb-3" style={{ color: '#475569' }}>
+                <p className="text-sm mb-3" style={{ color: '#94A3B8' }}>
                   {listing.strategyType.replace(/_/g, ' ')} Strategy
                 </p>
                 <div className="flex flex-wrap gap-2">
@@ -242,7 +339,7 @@ export default function MarketplaceDetailPage({ params }: { params: Promise<{ id
                 <div key={label} className="text-center">
                   <Icon size={16} className="mx-auto mb-1.5" style={{ color }} />
                   <p className="text-lg font-bold font-display" style={{ color }}>{value}</p>
-                  <p className="text-xs" style={{ color: '#334155' }}>{label}</p>
+                  <p className="text-xs" style={{ color: '#94A3B8' }}>{label}</p>
                 </div>
               ))}
             </div>
@@ -267,7 +364,7 @@ export default function MarketplaceDetailPage({ params }: { params: Promise<{ id
                 ...(listing.ipfsCID ? [{ label: 'IPFS Metadata', value: listing.ipfsCID.slice(0, 30) + '…', href: `https://ipfs.io/ipfs/${listing.ipfsCID}` }] : []),
               ].map(({ label, value, href }) => (
                 <div key={label} className="flex items-center justify-between py-2" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                  <span className="text-xs" style={{ color: '#334155' }}>{label}</span>
+                  <span className="text-xs" style={{ color: '#94A3B8' }}>{label}</span>
                   <a
                     href={href}
                     target={href !== '#' ? '_blank' : undefined}
@@ -325,18 +422,31 @@ export default function MarketplaceDetailPage({ params }: { params: Promise<{ id
             className="glass-card p-5 sticky top-24"
           >
             <div className="text-center mb-5">
-              <p className="text-xs mb-1" style={{ color: '#334155' }}>Price</p>
+              <p className="text-xs mb-1" style={{ color: '#94A3B8' }}>Price</p>
               <p className="font-display text-3xl font-bold" style={{ color: '#F59E0B' }}>
                 {listing.priceHbar ? `${listing.priceHbar} ℏ` : 'Free'}
               </p>
-              {listing.priceHbar && (
-                <p className="text-xs mt-1" style={{ color: '#1E293B' }}>
-                  + 5% royalty on secondary sales
+              {listing.priceHbar && isSecondarySale && (
+                <div className="mt-2 space-y-1 text-xs text-center">
+                  <div className="flex justify-between px-2">
+                    <span style={{ color: '#94A3B8' }}>To seller</span>
+                    <span style={{ color: '#E2E8F0' }}>{(listing.priceHbar * 0.95).toFixed(4)} ℏ</span>
+                  </div>
+                  <div className="flex justify-between px-2">
+                    <span style={{ color: '#F59E0B' }}>5% royalty to creator</span>
+                    <span style={{ color: '#F59E0B' }}>{(listing.priceHbar * 0.05).toFixed(4)} ℏ</span>
+                  </div>
+                </div>
+              )}
+              {listing.priceHbar && !isSecondarySale && (
+                <p className="text-xs mt-1" style={{ color: '#94A3B8' }}>
+                  + 5% royalty on future resales
                 </p>
               )}
             </div>
 
             {bought ? (
+              /* ── Post-purchase success ───────────────────────── */
               <div className="space-y-3">
                 <div
                   className="w-full py-3 rounded-xl text-center text-sm font-bold"
@@ -344,49 +454,139 @@ export default function MarketplaceDetailPage({ params }: { params: Promise<{ id
                 >
                   ✓ Strategy Acquired!
                 </div>
+                <div className="rounded-xl p-3 space-y-1.5"
+                  style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.2)' }}>
+                  <p className="text-xs font-semibold" style={{ color: '#F59E0B' }}>Next step: Activate your agent</p>
+                  <p className="text-[10px] leading-relaxed" style={{ color: '#94A3B8' }}>
+                    Your new agent is <strong style={{ color: '#E2E8F0' }}>inactive by default</strong>. Open it and click <strong style={{ color: '#E2E8F0' }}>Resume</strong> to start live trading.
+                  </p>
+                </div>
                 {clonedId && (
                   <Link
                     href={`/agents/${clonedId}`}
-                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold transition-all"
+                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold transition-all hover:opacity-80"
                     style={{ background: 'rgba(0,169,186,0.1)', color: '#00A9BA', border: '1px solid rgba(0,169,186,0.25)' }}
                   >
-                    Go to My Agent Dashboard →
+                    Go to Agent Dashboard →
                   </Link>
                 )}
-                <p className="text-[10px] text-center text-gray-500">Redirecting automatically…</p>
+                <p className="text-[10px] text-center text-gray-400">Redirecting automatically…</p>
+              </div>
+            ) : buying ? (
+              /* ── In-progress: prompt user to check HashPack ─── */
+              <div className="space-y-3">
+                <div className="rounded-xl p-4 flex flex-col items-center gap-3 text-center"
+                  style={{ background: 'rgba(0,169,186,0.06)', border: '1px solid rgba(0,169,186,0.25)' }}>
+                  <div className="w-10 h-10 rounded-full flex items-center justify-center"
+                    style={{ background: 'rgba(0,169,186,0.12)' }}>
+                    <div className="w-5 h-5 rounded-full border-2 border-t-transparent animate-spin"
+                      style={{ borderColor: '#00A9BA', borderTopColor: 'transparent' }} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold mb-1" style={{ color: '#E2E8F0' }}>
+                      {buyPhase || 'Processing…'}
+                    </p>
+                    {(buyPhase?.includes('HBAR') || buyPhase?.includes('Confirming') || buyPhase?.includes('Associating')) && (
+                      <p className="text-xs leading-relaxed" style={{ color: '#00A9BA' }}>
+                        Please open your <strong>HashPack wallet</strong> and approve the transaction.
+                      </p>
+                    )}
+                    {buyPhase?.includes('Setting up') && (
+                      <p className="text-xs" style={{ color: '#94A3B8' }}>
+                        Cloning agent for your account…
+                      </p>
+                    )}
+                    {buyPhase?.includes('Checking') && (
+                      <p className="text-xs" style={{ color: '#94A3B8' }}>
+                        Verifying your token association via Mirror Node…
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : isOwner ? (
+              /* ── Owner view — cannot buy own NFT ────────────── */
+              <div className="space-y-3">
+                <div
+                  className="w-full rounded-xl p-4 flex flex-col items-center gap-2 text-center"
+                  style={{ background: 'rgba(0,169,186,0.06)', border: '1px solid rgba(0,169,186,0.2)' }}
+                >
+                  <div
+                    className="w-10 h-10 rounded-full flex items-center justify-center mb-1"
+                    style={{ background: 'rgba(0,169,186,0.12)' }}
+                  >
+                    <BotIcon size={18} style={{ color: '#00A9BA' }} />
+                  </div>
+                  <p className="text-sm font-semibold" style={{ color: '#E2E8F0' }}>
+                    You listed this agent
+                  </p>
+                  <p className="text-xs leading-relaxed" style={{ color: '#94A3B8' }}>
+                    You cannot purchase your own NFT. Buyers who acquire this listing receive a working copy, and you earn a <strong style={{ color: '#F59E0B' }}>5% royalty</strong> automatically on every secondary resale — paid in HBAR directly to your wallet.
+                  </p>
+                </div>
+                <Link
+                  href={`/agents/${id}`}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold transition-all hover:opacity-80"
+                  style={{ background: 'linear-gradient(135deg,#00A9BA,#1565C0)', color: '#fff' }}
+                >
+                  Manage Agent →
+                </Link>
+                <Link
+                  href="/marketplace"
+                  className="w-full flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-medium transition-all"
+                  style={{ border: '1px solid rgba(255,255,255,0.08)', color: '#94A3B8' }}
+                >
+                  Browse Other Listings
+                </Link>
               </div>
             ) : (
-              <button
-                onClick={handleBuy}
-                disabled={buying || !accountId}
-                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold cursor-pointer transition-all duration-200 disabled:opacity-60"
-                style={{
-                  background: 'linear-gradient(135deg, #00A9BA, #1565C0)',
-                  color: '#fff',
-                  boxShadow: '0 0 24px rgba(0,169,186,0.3)',
-                }}
-              >
-                <ShoppingCartIcon size={15} />
-                {buying ? (buyPhase || 'Processing…') : !accountId ? 'Connect Wallet First' : 'Buy Strategy NFT'}
-              </button>
+              /* ── Third-party buyer — purchase flow ───────────── */
+              <div className="space-y-2">
+                <button
+                  onClick={handleBuy}
+                  disabled={!accountId}
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold cursor-pointer transition-all duration-200 disabled:opacity-50"
+                  style={{
+                    background: 'linear-gradient(135deg, #00A9BA, #1565C0)',
+                    color: '#fff',
+                    boxShadow: '0 0 24px rgba(0,169,186,0.3)',
+                  }}
+                >
+                  <ShoppingCartIcon size={15} />
+                  {!accountId ? 'Connect Wallet First' : 'Buy Strategy NFT'}
+                </button>
+                {!accountId && (
+                  <p className="text-[10px] text-center" style={{ color: '#94A3B8' }}>
+                    Connect HashPack above to purchase
+                  </p>
+                )}
+              </div>
             )}
 
-            <p className="text-xs text-center mt-3" style={{ color: '#1E293B' }}>
+            <p className="text-xs text-center mt-3" style={{ color: '#94A3B8' }}>
               Royalty enforced at protocol level · Cannot be bypassed
             </p>
 
             <div
               className="mt-4 pt-4 text-xs"
-              style={{ borderTop: '1px solid rgba(255,255,255,0.06)', color: '#334155' }}
+              style={{ borderTop: '1px solid rgba(255,255,255,0.06)', color: '#94A3B8' }}
             >
               <div className="flex justify-between mb-1">
                 <span>Network</span>
-                <span style={{ color: '#64748B', textTransform: 'uppercase' }}>{NETWORK}</span>
+                <span style={{ color: '#94A3B8', textTransform: 'uppercase' }}>{NETWORK}</span>
               </div>
-              <div className="flex justify-between">
+              <div className="flex justify-between mb-1">
                 <span>Royalty</span>
-                <span style={{ color: '#64748B' }}>5% (HIP-412)</span>
+                <span style={{ color: '#F59E0B' }}>5% to creator</span>
               </div>
+              {isSecondarySale && (
+                <div className="flex justify-between">
+                  <span>Creator</span>
+                  <span className="font-mono truncate ml-2" style={{ color: '#94A3B8', maxWidth: 100 }} title={creatorId}>
+                    {creatorId.slice(0, 12)}…
+                  </span>
+                </div>
+              )}
             </div>
 
             <a
@@ -394,7 +594,7 @@ export default function MarketplaceDetailPage({ params }: { params: Promise<{ id
               target="_blank"
               rel="noopener noreferrer"
               className="w-full flex items-center justify-center gap-2 mt-4 py-2 rounded-xl text-xs font-medium cursor-pointer transition-all duration-200"
-              style={{ border: '1px solid rgba(255,255,255,0.08)', color: '#475569' }}
+              style={{ border: '1px solid rgba(255,255,255,0.08)', color: '#94A3B8' }}
             >
               View on HashScan
               <ExternalLinkIcon size={12} />

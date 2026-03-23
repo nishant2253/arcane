@@ -288,7 +288,7 @@ describe('AgentRegistry', function () {
     beforeEach(deployRegistry);
 
     /**
-     * Core TradeAgent invariant:
+     * Core Arcane invariant:
      * configHash stored on HSCS MUST match keccak256(agentConfigJSON from HFS).
      * Any tampered config is PROVABLY detectable on-chain — no trust required.
      */
