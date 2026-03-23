@@ -626,7 +626,7 @@ export default function AgentsPage() {
                       const amtOut  = msg.decision?.indicators?.amountOut;
                       const swapDir = msg.decision?.reasoning?.includes('HBAR_TO_USDC') ? 'HBAR → tUSDT' : msg.decision?.reasoning?.includes('USDC_TO_HBAR') ? 'tUSDT → HBAR' : '';
                       return (
-                        <motion.div key={msg.seq}
+                        <motion.div key={`${msg.seq}-${i}`}
                           initial={{ opacity: 0, x: -6 }}
                           animate={{ opacity: 1, x: 0 }}
                           transition={{ delay: i * 0.02 }}

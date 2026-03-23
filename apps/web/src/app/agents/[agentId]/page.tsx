@@ -720,7 +720,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
 
               return (
                 <motion.div
-                  key={msg.seq}
+                  key={`${msg.seq}-${i}`}
                   initial={{ opacity: 0, x: -8 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: i * 0.03 }}
