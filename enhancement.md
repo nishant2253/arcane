@@ -256,6 +256,188 @@ The `TokenId`, `AccountId`, and `Hbar` SDK classes were imported into `agents/[a
 
 ---
 
+---
+
+## 16. Full Deterministic Indicator Library (`indicators.ts`)
+**Status:** ✅ Complete
+**File:** `apps/api/src/agent/indicators.ts`
+
+A standalone, fully-tested indicator library — no third-party TA library dependency:
+
+| Function | Algorithm |
+|---|---|
+| `calculateEMA(prices, period)` | SMA seed → exponential smoothing (multiplier = 2/(period+1)) |
+| `calculateRSI(prices, period)` | Wilder's smoothing (SMMA), not simple EMA |
+| `calculateMACD(prices)` | EMA(12) − EMA(26) signal line, histogram, crossover detection |
+| `calculateBollinger(prices, period, stdDev)` | SMA ± k×σ; breakout/squeeze detection |
+| `calculateATR(ohlcv, period)` | True Range = max(H-L, |H-prev.C|, |L-prev.C|) SMMA |
+| `analyzeVolume(ohlcv)` | Surge (>1.5× 20-period avg), trend (3-bar comparison) |
+| `calculateAllIndicators(ohlcv, config)` | Master function → weighted `compositeScore` across all indicators |
+| `pricesToOHLCV(prices)` | Converts close-price array to synthetic OHLCV candles |
+
+`calculateAllIndicators` returns a typed `IndicatorResult` with named sub-objects for each indicator plus a single `compositeScore` in `[-1, +1]` used by the strategy router.
+
+---
+
+## 17. Four Deterministic Trading Strategies (`strategies.ts`)
+**Status:** ✅ Complete
+**File:** `apps/api/src/agent/strategies.ts`
+
+Each strategy is a pure function `(indicatorResult, price, riskConfig) → SignalOutput`:
+
+| Strategy | `strategyType` | Logic |
+|---|---|---|
+| `emaStrategy` | `TREND_FOLLOW` | Bullish when price > EMA_60 + EMA slope rising + RSI 40–70 + positive MACD histogram |
+| `rsiMeanReversionStrategy` | `MEAN_REVERT` | BUY when RSI < 30 + not at Bollinger lower; SELL when RSI > 70 + not at Bollinger upper |
+| `macdMomentumStrategy` | `MOMENTUM` | BUY on bullish MACD crossover + compositeScore > 0.2; SELL on bearish crossover |
+| `bollingerBreakoutStrategy` | `BREAKOUT` | BUY on `BREAKOUT_UP` + volume surge + RSI < 80; SELL on `BREAKOUT_DOWN` + volume surge |
+
+`runStrategy(strategyType, indicatorResult, price, riskConfig)` is the public router that dispatches to the correct strategy. Unknown strategy types fall back to `TREND_FOLLOW`. Each function returns `{ signal, confidence, stopLoss, takeProfit }`.
+
+---
+
+## 18. Kelly Criterion Risk Manager (`riskManager.ts`)
+**Status:** ✅ Complete
+**File:** `apps/api/src/agent/riskManager.ts`
+
+| Function | Purpose |
+|---|---|
+| `calculatePositionSize(balance, winRate, avgWin, avgLoss, config)` | Half-Kelly formula: `f = (p×b − q) / b` × 0.5, capped at `maxPositionPct` |
+| `calculateDynamicStopLoss(price, atr, signal, config)` | Stop = price ± (ATR × multiplier); default 2× ATR |
+| `checkRiskGates(dailyLoss, maxDrawdown, openPositions, config)` | Returns `{ allowed: boolean, reason: string }` — blocks trades exceeding limits |
+| `calculateWinRate(executions)` | Computes win rate, profit factor, Sharpe ratio, expectancy, max drawdown from Execution records |
+| `DEFAULT_RISK_CONFIG` | Sensible defaults: 2% ATR multiplier, 30% max position, 5% daily loss limit, 20% max drawdown |
+
+`RiskConfig` is an interface that maps directly to the `AgentConfig.risk` field, ensuring agent-specific risk parameters flow from the AI builder all the way through to position sizing.
+
+---
+
+## 19. `agentRunner.ts` — Refactored to Deterministic Pipeline
+**Status:** ✅ Complete
+**File:** `apps/api/src/agent/agentRunner.ts`
+
+**Architecture shift:**
+
+| Before | After |
+|---|---|
+| Gemini AI decided signal, confidence, stop loss | Gemini only enriches reasoning text |
+| Inline `computeEMA()` / `computeRSI()` | `calculateAllIndicators()` from `indicators.ts` |
+| No unified strategy dispatch | `runStrategy(strategyType, indicators, price, risk)` |
+| Fixed position sizing (hardcoded %) | Kelly Criterion via `kellyPositionSize()` from `riskManager.ts` |
+
+**New decision loop (per cycle):**
+1. Fetch 80 OHLCV candles from Binance → `pricesToOHLCV()`
+2. `calculateAllIndicators(ohlcv, config)` → `IndicatorResult` with `compositeScore`
+3. `runStrategy(agentConfig.strategyType, indicatorResult, price, riskConfig)` → `signal, confidence, stopLoss, takeProfit`
+4. `kellyPositionSize()` using historical win rate from DB `Execution` rows
+5. Gemini prompt receives the deterministic signal and indicator values; its sole job is to write a natural-language `reasoning` string
+6. HCS decision log includes both the deterministic signal and Gemini's reasoning
+
+---
+
+## 20. Performance Analytics Engine (`analytics/performance.ts`)
+**Status:** ✅ Complete
+**File:** `apps/api/src/analytics/performance.ts`
+
+Backend analytics engine that derives all performance metrics from on-chain HCS data:
+
+1. `fetchHCSMessages(topicId)` — fetches all messages from Hedera Mirror Node (`/api/v1/topics/{id}/messages`)
+2. Pairs DECISION + EXECUTION messages into `TradePair` objects
+3. Computes per-trade P&L as `(exitPrice − entryPrice) / entryPrice`
+4. Builds `equityCurve[]` indexed to 100
+5. Calculates all `WinRateResult` metrics (win rate, profit factor, Sharpe, expectancy, max drawdown)
+
+Exposed via `GET /api/analytics/:agentId/performance`. All numbers are sourced from aBFT-guaranteed HCS messages — independently verifiable by anyone with the `hcsTopicId`.
+
+---
+
+## 21. Analytics Dashboard (`/dashboard/[agentId]`)
+**Status:** ✅ Complete
+**File:** `apps/web/src/app/dashboard/[agentId]/page.tsx`
+
+Full professional trading terminal UI:
+
+| Section | Chart / Component |
+|---|---|
+| 8 Metric Cards | Win Rate, Profit Factor, Sharpe Ratio, Max Drawdown, Avg Win, Avg Loss, Expectancy, Total Signals |
+| Equity Curve | Recharts `AreaChart` — indexed to 100, gradient fill |
+| Signal Distribution | Recharts `PieChart` — BUY / SELL / HOLD with percentage labels |
+| Trade P&L | Recharts `BarChart` — per-trade R-multiple, green/red bars |
+| HCS Decision Feed | Last 10 HCS messages with BUY/SELL/HOLD badges, confidence %, timestamps |
+| Trade History Table | Entry price, exit price, P&L %, signal, date |
+| Mirror Node Banner | Topic ID + total message count — proves data is on-chain |
+
+Auto-refreshes every 30 seconds. Accessible from the agent page via "View Analytics Dashboard" button and directly at `/dashboard/[agentId]`.
+
+---
+
+## 22. Backtesting Engine (`backtesting/backtester.ts`)
+**Status:** ✅ Complete
+**File:** `apps/api/src/backtesting/backtester.ts`
+**Endpoint:** `POST /api/backtest`
+
+Simulates any strategy over historical OHLCV data:
+1. `fetchHistoricalOHLCV(asset, days)` — fetches candles from CoinGecko (`/coins/hedera-hashgraph/ohlc`)
+2. `runBacktest(ohlcv, strategyType, riskConfig)` — walks candles in order:
+   - Calls `calculateAllIndicators()` + `runStrategy()` on each candle (same functions as live trading)
+   - Simulates stop-loss and take-profit exits
+   - Accumulates trade history and equity curve
+3. Returns full `BacktestResult`: `totalTrades`, `winRate`, `profitFactor`, `sharpeRatio`, `maxDrawdown`, `equityCurve`, `trades[]`
+
+Because the same `runStrategy()` and `calculateAllIndicators()` functions are used for both live trading and backtesting, backtest results accurately reflect how the strategy would have performed in production.
+
+---
+
+## 23. Leaderboard (`leaderboard.ts` + `GET /api/leaderboard`)
+**Status:** ✅ Complete
+**File:** `apps/api/src/routes/leaderboard.ts`
+**Endpoint:** `GET /api/leaderboard?sortBy=winRate&limit=20`
+
+Ranks all listed marketplace agents by performance:
+1. Fetches all listed agents from the database
+2. Computes `calculateWinRate()` for each from DB `Execution` records
+3. Fetches `hcsVerifiedCount` live from Hedera Mirror Node for each agent's topic (on-chain proof)
+4. Sorts by `sortBy` query param (`winRate`, `profitFactor`, `sharpeRatio`, `totalTrades`)
+5. Returns ranked list with `rank`, `agentId`, `name`, `strategyType`, all performance metrics, and `hcsVerifiedCount`
+
+---
+
+## 24. Marketplace — 6-Stat Cards, Equity Sparkline, Min-7-HCS Listing Gate
+**Status:** ✅ Complete
+
+### 24a. Enhanced Marketplace Cards (`apps/web/src/app/marketplace/page.tsx`)
+Each agent card on `/marketplace` now displays:
+- **6 performance stats grid:** Win Rate (green/amber conditional), Profit Factor, Sharpe Ratio, Trades count, Avg Win %, Avg Loss %
+- **Mini equity sparkline:** Recharts `AreaChart` (height 48px) showing the agent's equity curve over time
+
+These stats are returned by the updated `GET /api/marketplace` endpoint and sourced from HCS trade history.
+
+### 24b. Marketplace API Performance Stats (`apps/api/src/routes/marketplace.ts`)
+`GET /api/marketplace` now computes and returns for each listing:
+- `profitFactor`, `sharpeRatio`, `avgWin`, `avgLoss`, `equitySparkline` (array of `{equity: number}` objects)
+
+### 24c. Minimum-7-HCS Listing Gate (`apps/api/src/routes/marketplace.ts`)
+`POST /api/marketplace/list` now enforces a **minimum 7 verified HCS decision messages** before an agent can be listed:
+- Queries Mirror Node for the agent's HCS topic messages
+- If `count < 7`, returns `400` with an error explaining how many more trade cycles are needed
+- Prevents listing of untested agents with no provable track record
+
+---
+
+## 25. TypeScript Fixes (ES2020, Listing Interface, TradeApprovalModal)
+**Status:** ✅ Complete
+
+Four targeted TypeScript fixes applied after the trading platform upgrade:
+
+| File | Fix |
+|---|---|
+| `apps/web/tsconfig.json` | `target: "ES2017"` → `"ES2020"` to allow BigInt literals |
+| `apps/web/src/stores/marketplaceStore.ts` | Extended `Listing` interface with `profitFactor`, `sharpeRatio`, `avgWin`, `avgLoss`, `equitySparkline` optional nullable fields |
+| `apps/web/src/app/wallet/page.tsx` | Removed dead `setBalance` destructure (store exposes `setBalances`) |
+| `apps/web/src/components/TradeApprovalModal.tsx` | `.addUint256(amount.toString())` → `.addUint256(Number(amount))` to satisfy SDK type |
+
+---
+
 ## Upcoming / Planned
 
 - [ ] Mainnet deployment: replace MockDEX with live SaucerSwap + HAK plugin
@@ -263,3 +445,5 @@ The `TokenId`, `AccountId`, and `Hbar` SDK classes were imported into `agents/[a
 - [ ] Portfolio dashboard: aggregate P&L across all agents
 - [ ] Notification system: alert user when MANUAL trade approval is pending
 - [ ] Encrypt `agentAccountPrivateKey` at rest (AES-256 with operator master key)
+- [ ] Frontend backtesting UI: form to run `POST /api/backtest` and display results inline
+- [ ] Frontend leaderboard page: `/leaderboard` with sortable columns

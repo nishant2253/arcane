@@ -153,6 +153,7 @@ const buySell = signals.reduce((acc, s) => { ... }, { buy: 0, sell: 0 });
 All three usages of `listing.recentSignals` (reduce, `.length > 0`, `.slice`) were updated to use the `signals` local variable.
 
 ### 23. "List as NFT" Had No HashPack Popup — Silent Backend-Only Call
+
 **Symptom:** Clicking "List as NFT" on the agent dashboard called the backend silently with no user-visible wallet interaction. The operator minted the NFT, but the user never approved anything in HashPack, and the NFT could not be transferred to their account (TOKEN_NOT_ASSOCIATED).
 **Root Cause:** `listOnMarketplace()` in `agents/[agentId]/page.tsx` made a direct `fetch()` POST to `/api/marketplace/list` with no prior `TokenAssociateTransaction`, so:
 1. The user saw no HashPack popup
@@ -161,3 +162,27 @@ All three usages of `listing.recentSignals` (reduce, `.length > 0`, `.slice`) we
 1. **User signs `TokenAssociateTransaction`** for `NEXT_PUBLIC_STRATEGY_TOKEN_ID` → HashPack popup appears with gas fees
 2. **Backend call** — operator mints NFT and transfers to the now-associated wallet
 If the wallet is already associated, the `TOKEN_ALREADY_ASSOCIATED` error is silently caught and the flow continues to the backend call.
+
+---
+
+### 24. Four TypeScript Compilation Errors After Trading Platform Upgrade
+
+**Symptom (4 separate errors in one batch):**
+1. `apps/web/src/app/marketplace/page.tsx` — `Property 'profitFactor' does not exist on type 'Listing'` (and same for `sharpeRatio`, `avgWin`, `avgLoss`) — 8 errors total.
+2. `apps/web/src/app/wallet/page.tsx(35)` — `Property 'setBalance' does not exist on type 'WalletState'`.
+3. `apps/web/src/components/TradeApprovalModal.tsx` — `TS2737: BigInt literals are not available when targeting lower than ES2020` (4 occurrences).
+4. `apps/web/src/components/TradeApprovalModal.tsx(138,139)` — `TS2345: Argument of type 'string' is not assignable to parameter of type 'number | BigNumber | Long'` on `.addUint256(amount.toString())` and `.addUint256(slippageMin.toString())`.
+
+**Root Causes:**
+1. `marketplaceStore.ts`'s `Listing` interface was not extended with the new performance fields (`profitFactor`, `sharpeRatio`, `avgWin`, `avgLoss`, `equitySparkline`) that the upgraded `marketplace/page.tsx` now reads.
+2. `wallet/page.tsx` destructured `setBalance` (singular) from `useWalletStore`, but the store only exposes `setBalances` (plural). The variable was never actually called — dead code from an old draft.
+3. `apps/web/tsconfig.json` had `"target": "ES2017"`. Native `bigint` literals (`0n`, `995n`) require at minimum `"target": "ES2020"` per the TypeScript specification.
+4. `ContractFunctionParameters.addUint256()` from `@hashgraph/sdk` accepts `number | BigNumber | Long` — not `string`. Passing `.toString()` on a `bigint` produced a `string` which does not satisfy the overload.
+
+**Resolutions:**
+1. Added `profitFactor`, `sharpeRatio`, `avgWin`, `avgLoss`, `equitySparkline` as optional nullable fields to the `Listing` interface in `apps/web/src/stores/marketplaceStore.ts`.
+2. Removed the unused `setBalance` from the destructure in `wallet/page.tsx` (store already exposes `setBalances`).
+3. Changed `"target": "ES2017"` → `"target": "ES2020"` in `apps/web/tsconfig.json`.
+4. Changed `.addUint256(amount.toString())` / `.addUint256(slippageMin.toString())` → `.addUint256(Number(amount))` / `.addUint256(Number(slippageMin))` in `TradeApprovalModal.tsx`.
+
+**Files changed:** `apps/web/src/stores/marketplaceStore.ts`, `apps/web/src/app/wallet/page.tsx`, `apps/web/src/components/TradeApprovalModal.tsx`, `apps/web/tsconfig.json`.

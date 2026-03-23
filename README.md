@@ -7,8 +7,9 @@ TradeAgent is a decentralized AI trading agent platform. Users create, deploy, a
 Each agent:
 - Is described in plain English → Gemini 2.5 Flash generates a structured `AgentConfig`
 - Gets a dedicated Hedera ECDSA account to trade autonomously — no per-trade signing required
+- Runs a **deterministic indicator pipeline** (EMA, RSI, MACD, Bollinger, ATR) that drives the trade signal; Gemini only enriches the reasoning text
 - Logs every AI decision to HCS *before* any swap executes (tamper-proof audit trail)
-- Is registered as an NFT on HTS and listed in the on-chain marketplace
+- Is registered as an NFT on HTS and listed in the on-chain marketplace with provable on-chain performance stats
 
 ---
 
@@ -104,19 +105,33 @@ hbarb/                               # npm workspaces root
 │   │       │   └── wallet/          # Portfolio + TX audit log
 │   │       ├── components/          # Shared UI components
 │   │       ├── lib/                 # wallet.ts, balance.ts, hashpackEthers.ts
-│   │       └── stores/              # Zustand stores (walletStore)
+│   │       ├── stores/              # Zustand stores (walletStore, marketplaceStore)
+│   │       └── app/
+│   │           ├── create/          # AI agent builder
+│   │           ├── agents/[id]/     # Agent detail + list-as-NFT
+│   │           ├── dashboard/[id]/  # Analytics terminal (equity curve, HCS feed)
+│   │           ├── marketplace/     # Browse + buy agents (6-stat cards + sparklines)
+│   │           └── wallet/          # Portfolio + TX audit log
 │   └── api/                         # Node.js + Express API (port 3001)
 │       ├── src/
 │       │   ├── index.ts             # Server entry, route registration
 │       │   ├── config/env.ts        # Typed env loader
-│       │   ├── agent/               # AI engine
-│       │   │   ├── agentRunner.ts   # EMA/RSI + Gemini decision loop
+│       │   ├── agent/               # AI + algorithmic trading engine
+│       │   │   ├── agentRunner.ts   # Deterministic indicator→strategy→Gemini loop
+│       │   │   ├── indicators.ts    # EMA/RSI/MACD/Bollinger/ATR/Volume + composite score
+│       │   │   ├── strategies.ts    # 4 strategies (EMA Crossover, RSI MR, MACD, Bollinger)
+│       │   │   ├── riskManager.ts   # Kelly Criterion sizing, ATR stop loss, risk gates
 │       │   │   └── tradeExecutor.ts # MockDEX swap logic (auto + manual)
+│       │   ├── analytics/
+│       │   │   └── performance.ts   # HCS → equity curve, Sharpe, profit factor, drawdown
+│       │   ├── backtesting/
+│       │   │   └── backtester.ts    # Historical OHLCV simulation (CoinGecko)
 │       │   └── routes/              # API routes
 │       │       ├── agents.ts        # CRUD, finalize-deploy, fund, withdraw
 │       │       ├── transactions.ts  # TX audit log
-│       │       └── marketplace.ts   # Listing + purchase
-│       └── prisma/schema.prisma     # DB schema (Agent, Transaction, Listing models)
+│       │       ├── leaderboard.ts   # GET /api/leaderboard sorted by win rate
+│       │       └── marketplace.ts   # Listing (min 7 HCS) + purchase + perf stats
+│       └── prisma/schema.prisma     # DB schema (Agent, Execution, Transaction models)
 ├── packages/
 │   ├── contracts/                   # Solidity smart contracts
 │   │   ├── contracts/
@@ -156,17 +171,25 @@ hbarb/                               # npm workspaces root
 ### Decision → Trade Proof Chain
 
 ```
-1. Binance 1h candles → compute EMA/RSI
+1. Binance 1h candles → pricesToOHLCV() → calculateAllIndicators()
+   └─ EMA, RSI (Wilder), MACD, Bollinger Bands, ATR, Volume surge
+   └─ Composite score weighted across all indicators
 2. Pyth + SaucerSwap prices → cross-check (>5% divergence → use DEX price)
 3. syncMockDexReserves() → pool updated to match market price
-4. Gemini 2.5 Flash → BUY/SELL/HOLD + reasoning
-5. HCS message #N  ← decision logged BEFORE swap (aBFT timestamp)
-6. MockDEX.executeSwap()  ← real HTS token transfer; embeds HCS seq #N
-7. HCS message #N+1 ← execution result logged with txHash
+4. runStrategy(strategyType, indicators, price, risk)
+   └─ TREND_FOLLOW: EMA Crossover  |  MEAN_REVERT: RSI ± Bollinger
+   └─ MOMENTUM: MACD Crossover     |  BREAKOUT: Bollinger + Volume surge
+   └─ Returns: signal (BUY/SELL/HOLD), confidence %, stopLoss, takeProfit
+5. calculatePositionSize() → Kelly Criterion with ATR-based stop loss
+6. Gemini 2.5 Flash → enriches reasoning text ONLY (does not decide signal)
+7. HCS message #N  ← decision logged BEFORE swap (aBFT timestamp)
+8. MockDEX.executeSwap()  ← real HTS token transfer; embeds HCS seq #N
+9. HCS message #N+1 ← execution result logged with txHash
 ```
 
 Every swap is cryptographically linked to the AI decision that triggered it.
 HBAR and tUSDC balances change in real wallets — not simulated.
+The trade signal is deterministic and verifiable; Gemini only explains it.
 
 ---
 
@@ -180,8 +203,10 @@ HBAR and tUSDC balances change in real wallets — not simulated.
 | Agent dedicated ECDSA account | ✅ Complete |
 | tUSDT auto-association per agent | ✅ Complete |
 | Fund Agent modal (one-time) | ✅ Complete |
-| EMA/RSI/MACD from Binance candles | ✅ Complete |
-| Gemini decision with real indicators | ✅ Complete |
+| **Full indicator engine** (EMA/RSI/MACD/Bollinger/ATR/Volume + composite score) | ✅ Complete |
+| **4 deterministic strategies** (EMA Crossover, RSI Mean Reversion, MACD Momentum, Bollinger Breakout) | ✅ Complete |
+| **Kelly Criterion risk manager** (position sizing, ATR stop loss, daily loss gate, drawdown gate) | ✅ Complete |
+| Gemini enriches reasoning text (signal determined by indicators, not LLM) | ✅ Complete |
 | HCS decision logging (aBFT) | ✅ Complete |
 | MockDEX v2 — real HTS token transfers (SELL + BUY) | ✅ Complete |
 | SaucerSwap live DEX price feed + reserve sync | ✅ Complete |
@@ -193,9 +218,13 @@ HBAR and tUSDC balances change in real wallets — not simulated.
 | Transaction Audit Log (/wallet) | ✅ Complete |
 | Rich HCS Execution History | ✅ Complete |
 | HCS-10 OpenConvAI registration (background) | ✅ Complete |
-| Marketplace listing UI (HashPack association + operator mint) | ✅ Complete |
+| Marketplace listing UI (HashPack association + operator mint, min 7 HCS decisions) | ✅ Complete |
 | Marketplace buyer flow (associate + atomic swap + clone) | ✅ Complete |
+| **Marketplace 6-stat cards** (win rate, profit factor, Sharpe, trades, avg win/loss + sparkline) | ✅ Complete |
 | 5% royalty — Hedera HTS protocol-enforced | ✅ Complete |
+| **Analytics Dashboard** (/dashboard/[id]) — 8 metric cards, equity curve, signal donut, HCS feed | ✅ Complete |
+| **Leaderboard** (GET /api/leaderboard — sortable by win rate, Sharpe, profit factor) | ✅ Complete |
+| **Backtesting engine** (POST /api/backtest — CoinGecko historical OHLCV simulation) | ✅ Complete |
 | Wallet rehydration (no re-prompt on refresh) | ✅ Complete |
 | Mainnet / SaucerSwap live execution | ⏳ Post-hackathon |
 
@@ -207,16 +236,18 @@ HBAR and tUSDC balances change in real wallets — not simulated.
 - HashScan explorer: [hashscan.io/testnet](https://hashscan.io/testnet)
 - API health check: [localhost:3001/health](http://localhost:3001/health)
 - Full demo walkthrough: [`verificationflow.md`](./verificationflow.md)
+- Enhancement log: [`enhancement.md`](./enhancement.md)
+- Bug tracker: [`bugs.md`](./bugs.md)
 
 ---
 
 ## 📜 Tech Stack
 
-**Frontend:** Next.js 15 · TypeScript · Tailwind v4 · Lucide React · Zustand · Framer Motion
+**Frontend:** Next.js 15 · TypeScript (ES2020) · Tailwind v4 · Lucide React · Zustand · Framer Motion · **Recharts** (equity curves, signal distribution, trade P&L)
 
 **Backend:** Node.js 22 · Express 4 · Supabase (PostgreSQL) · Prisma v6 · BullMQ · Redis · Zod
 
-**AI Engine:** Gemini 2.5 Flash · Binance REST API (price history) · EMA/RSI/MACD (custom impl.)
+**AI Engine:** Gemini 2.5 Flash (reasoning enrichment) · Binance REST API (OHLCV) · EMA/RSI/MACD/Bollinger/ATR (deterministic indicators) · Kelly Criterion (position sizing) · CoinGecko (backtesting)
 
 **Blockchain:** Hedera HCS · HTS · HFS · HSCS · HCS-10 · Mirror Node API · @hashgraph/sdk v2
 

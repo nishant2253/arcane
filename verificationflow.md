@@ -2,6 +2,8 @@
 
 **Last verified:** March 23, 2026 | Status: ✅ Full deployment confirmed working end-to-end
 
+> **Recent additions:** Deterministic indicator engine (EMA/RSI/MACD/Bollinger/ATR), 4 trading strategies, Kelly risk manager, analytics dashboard (`/dashboard/[id]`), leaderboard (`GET /api/leaderboard`), backtesting (`POST /api/backtest`), enhanced marketplace cards with 6 performance stats + equity sparkline, and min-7-HCS listing gate.
+
 ---
 
 ## Prerequisites
@@ -150,10 +152,14 @@ From the agent dashboard at `/agents/[agentId]`:
 [HederaKit] Pyth price for HBAR/USDC: $0.089621
 [SaucerSwap] DEX market price: $0.089534
 [MockDEX] Pool synced: $0.0895/HBAR
-[AgentRunner] Step 2b: Computing technical indicators...
-[AgentRunner] Indicators: {"price":0.0897,"EMA_60":0.08843,"RSI_14":52.3,"price_vs_ma_pct":1.43}
-
-[AgentRunner] Decision: BUY (confidence: 72%) — Price $0.0897 is 1.43% above EMA_60...
+[AgentRunner] Step 2a: Fetching 80 OHLCV candles from Binance...
+[AgentRunner] Step 2b: Computing full indicator set (EMA/RSI/MACD/Bollinger/ATR/Volume)...
+[AgentRunner] compositeScore: 0.68 | EMA_60: 0.08843 | RSI_14: 52.3 | MACD: bullish | ATR: 0.0004
+[AgentRunner] Step 2c: Running TREND_FOLLOW strategy (runStrategy)...
+[AgentRunner] Signal: BUY (confidence: 72%) stopLoss: 0.0881 takeProfit: 0.0932
+[AgentRunner] Step 2d: Kelly position size → 850000000 tinybars (8.5 HBAR)
+[AgentRunner] Step 2e: Gemini enriching reasoning text...
+[AgentRunner] Decision: BUY (confidence: 72%) — EMA crossover confirmed above EMA_60...
 
 [HCS] ■ Decision logged BEFORE trade
 [HCS] Sequence: #1
@@ -180,7 +186,7 @@ This is the **core demo moment** for judges.
 
 ---
 
-## Step 8 — HCS Execution History (Agent Dashboard)
+## Step 8 — HCS Execution History + Analytics Link (Agent Dashboard)
 
 The **HCS Execution History** panel on the agent page shows:
 
@@ -188,6 +194,8 @@ The **HCS Execution History** panel on the agent page shows:
 - **Execution entries** (green "SWAP DONE" badge): direction arrow (HBAR → tUSDT), amounts in/out, slippage %, clickable tx hash → HashScan
 - **Timestamps** shown as relative time ("3m ago", "1h ago")
 - All data sourced live from Hedera Mirror Node — aBFT-guaranteed, tamper-proof
+
+**Analytics Link:** A "View Analytics Dashboard" button on the agent page navigates to `/dashboard/[agentId]` — see Step 12.
 
 ---
 
@@ -228,10 +236,11 @@ Navigate to `/wallet`. Below the live HCS Signal Feed:
 
 1. Go to agent dashboard → **NFT Marketplace** section (only shown to owner)
 2. Enter price in HBAR → click **List as NFT**
-3. **HashPack popup 1** — "Associate strategy NFT token" (one-time, max 2 HBAR fee) — approve it
-4. Backend mints an HTS NFT (strategy token `0.0.8316389`) with 5% royalty and transfers to your wallet
-5. Serial number and HashScan link appear after success
-6. Agent appears at `/marketplace` with provable stats from Mirror Node
+3. **Prerequisite check:** Backend verifies the agent has **≥ 7 HCS decision messages** on Mirror Node — agents with fewer than 7 trades are rejected with an informative error. Run more trade cycles to build a track record before listing.
+4. **HashPack popup 1** — "Associate strategy NFT token" (one-time, max 2 HBAR fee) — approve it
+5. Backend mints an HTS NFT (strategy token `0.0.8316389`) with 5% royalty and transfers to your wallet
+6. Serial number and HashScan link appear after success
+7. Agent appears at `/marketplace` with 6 performance stats (win rate, profit factor, Sharpe, trades, avg win/loss) + an equity sparkline computed from the HCS trade history
 
 ### Buying a strategy (buyer)
 
@@ -243,6 +252,98 @@ Navigate to `/wallet`. Below the live HCS Signal Feed:
 3. Auto-redirected to your new agent dashboard with working copy ready
 
 **5% royalty** is enforced at the Hedera HTS protocol level — impossible to bypass on any secondary marketplace.
+
+---
+
+---
+
+## Step 12 — Analytics Dashboard (/dashboard/[agentId])
+
+Navigate to `/dashboard/[agentId]` (or click "View Analytics Dashboard" on the agent page).
+
+**Verify the page shows:**
+- **Mirror Node proof banner** — HCS topic ID + total message count (all data sourced on-chain)
+- **8 metric cards:** Win Rate, Profit Factor, Sharpe Ratio, Max Drawdown, Avg Win %, Avg Loss %, Expectancy, Total Signals
+- **Equity Curve** (Recharts `AreaChart`) — indexed to 100, built from HCS message history
+- **Signal Distribution** (Recharts `PieChart`) — BUY / SELL / HOLD breakdown
+- **Trade P&L Bar Chart** (Recharts `BarChart`) — individual trade R-multiples
+- **Live HCS Decision Feed** — last 10 HCS messages with BUY/SELL/HOLD badges
+- **Trade History Table** — entry price, exit price, P&L %, signal, timestamp
+
+**API call verified:**
+```
+GET /api/analytics/[agentId]/performance
+→ { winRate, profitFactor, sharpeRatio, maxDrawdown, avgWin, avgLoss,
+    expectancy, totalSignals, equityCurve, hcsTopicId, totalHCSMsgs, source }
+```
+
+Page auto-refreshes every 30 seconds. On first load with no trades, all metric cards show `—` gracefully.
+
+---
+
+## Step 13 — Leaderboard API
+
+Test the leaderboard endpoint directly:
+```bash
+curl "http://localhost:3001/api/leaderboard?sortBy=winRate&limit=10"
+```
+
+**Expected response:**
+```json
+{
+  "leaderboard": [
+    {
+      "rank": 1,
+      "agentId": "...",
+      "name": "Mean Revert Bot",
+      "strategyType": "MEAN_REVERT",
+      "winRate": 63.2,
+      "profitFactor": 1.84,
+      "sharpeRatio": 1.43,
+      "totalTrades": 12,
+      "hcsVerifiedCount": 24,
+      "priceHbar": 50
+    }
+  ],
+  "sortBy": "winRate",
+  "total": 3
+}
+```
+
+`hcsVerifiedCount` is fetched live from Hedera Mirror Node for each listed agent — on-chain verified.
+
+Supported `sortBy` values: `winRate`, `profitFactor`, `sharpeRatio`, `totalTrades`.
+
+---
+
+## Step 14 — Backtesting API
+
+Test the backtesting endpoint:
+```bash
+curl -X POST http://localhost:3001/api/backtest \
+  -H "Content-Type: application/json" \
+  -d '{"strategyType":"TREND_FOLLOW","asset":"HBAR","days":30}'
+```
+
+**Expected response:**
+```json
+{
+  "result": {
+    "strategyType": "TREND_FOLLOW",
+    "asset": "HBAR",
+    "days": 30,
+    "totalTrades": 8,
+    "winRate": 62.5,
+    "profitFactor": 1.73,
+    "sharpeRatio": 1.21,
+    "maxDrawdown": 8.4,
+    "equityCurve": [100, 102.3, 98.7, ...],
+    "trades": [...]
+  }
+}
+```
+
+Historical OHLCV data is fetched from CoinGecko (`/coins/hedera-hashgraph/ohlc`). The same deterministic `runStrategy()` function used in live trading is applied to each candle — backtest results reflect exactly what the live agent would have done.
 
 ---
 
@@ -264,8 +365,10 @@ Navigate to `/wallet`. Below the live HCS Signal Feed:
 | Fund Agent modal | ✅ Working | TransferTransaction via HashPack (1 sig, one-time) |
 | finalize-deploy | ✅ Working | DB + BullMQ instant (~50ms response) |
 | HCS-10 registration | ✅ Working | Background fire-and-forget (~60s) |
-| EMA/RSI computation | ✅ Working | 80 Binance 1h candles, live indicators |
-| Real BUY/SELL signals | ✅ Working | Gemini cites actual EMA/RSI values |
+| Indicator engine (indicators.ts) | ✅ Working | EMA/RSI/MACD/Bollinger/ATR/Volume, composite score |
+| 4 deterministic strategies (strategies.ts) | ✅ Working | TREND_FOLLOW, MEAN_REVERT, MOMENTUM, BREAKOUT |
+| Kelly risk manager (riskManager.ts) | ✅ Working | Half-Kelly sizing, ATR stop loss, daily loss/drawdown gates |
+| Real BUY/SELL signals | ✅ Working | Deterministic pipeline; Gemini enriches reasoning only |
 | SaucerSwap price feed | ✅ Working | Cross-checks Pyth; uses DEX price on >5% divergence |
 | MockDEX reserve sync | ✅ Working | Pool updated each cycle to match market price |
 | HCS decision logging | ✅ Fixed | `freezeWith(client)` required for `TopicMessageSubmitTransaction` |
@@ -278,9 +381,15 @@ Navigate to `/wallet`. Below the live HCS Signal Feed:
 | Withdraw All | ✅ Working | Operator-signed back to owner |
 | TRADE_SWAP audit log | ✅ Working | Visible in /wallet with HashScan links |
 | Marketplace listing UI | ✅ Working | Price input + "List as NFT" — HashPack association popup + operator mint |
+| Marketplace min-7-HCS gate | ✅ Working | Mirror Node checked before listing — < 7 messages rejected |
+| Marketplace 6-stat cards + sparkline | ✅ Working | winRate, profitFactor, Sharpe, avgWin/Loss + AreaChart sparkline |
 | Marketplace post-purchase | ✅ Working | Clones agent for buyer, new HCS topic, BullMQ job |
 | NFT buyer association | ✅ Working | TokenAssociateTransaction before atomic swap |
 | 5% royalty | ✅ Working | HTS CustomRoyaltyFee, protocol-enforced |
+| Analytics dashboard (/dashboard/[id]) | ✅ Working | 8 metric cards, equity curve, signal donut, HCS feed, trade table |
+| Leaderboard (GET /api/leaderboard) | ✅ Working | sortBy winRate/profitFactor/sharpeRatio, hcsVerifiedCount from Mirror Node |
+| Backtesting (POST /api/backtest) | ✅ Working | CoinGecko OHLCV, same runStrategy() as live trading |
+| "View Analytics Dashboard" link | ✅ Working | Button on agent page → /dashboard/[agentId] |
 | Wallet rehydration | ✅ Working | Silent reconnect on page refresh |
 | BullMQ scheduling | ✅ Working | Cron based on agent timeframe |
 
@@ -305,3 +414,8 @@ Navigate to `/wallet`. Below the live HCS Signal Feed:
 | MockDEX swap fails silently | Check contract address matches `0.0.8332937` — old contract is deprecated |
 | Marketplace page crashes on open | `recentSignals` null from API — fixed with `?? []` fallback in `marketplace/[id]/page.tsx` |
 | "List as NFT" shows no HashPack popup | Fixed — `TokenAssociateTransaction` now fires before backend mint; wallet must be connected |
+| "List as NFT" rejected — insufficient trade history | Agent needs ≥ 7 HCS decisions before listing; run more trade cycles |
+| Analytics dashboard shows all `—` metric cards | Agent has no completed trades yet — trigger trade cycles first |
+| `/api/leaderboard` returns empty array | No agents listed on marketplace yet — complete an NFT listing first |
+| `/api/backtest` returns 422 or empty trades | CoinGecko may rate-limit or have no data for short `days` values; try `days: 30` |
+| TS2737 BigInt literals error in web build | Ensure `apps/web/tsconfig.json` has `"target": "ES2020"` — already fixed |
