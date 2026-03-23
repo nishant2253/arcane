@@ -57,9 +57,18 @@ prisma/*.db
 temp_*.txt
 blueprints_combined.txt
 *_Plan.pdf
-*_Guide.pdf
 *_Blueprint_*.pdf
 *_Implementation_*.pdf
+TradeAgent_*.pdf
+TradeAgent_*.txt
+
+# Source / raw assets (processed versions live in apps/web/public/)
+cropped_circle_image.png
+Gemini_Generated_Image_*.png
+
+# Third-party templates (not part of the codebase)
+"Black Elegant and Modern Startup Pitch Deck Presentation.pptx"
+Black\ Elegant\ and\ Modern\ Startup\ Pitch\ Deck\ Presentation.pptx
 
 # Cursor AI assets
 .cursor/
