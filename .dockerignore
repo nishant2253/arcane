@@ -1,0 +1,42 @@
+# Dependencies — never send to Docker, installed inside container
+node_modules
+**/node_modules
+
+# Build outputs — rebuilt inside container
+**/dist
+apps/web/.next
+
+# Frontend — not needed for API container
+apps/web/src
+apps/web/public
+apps/web/e2e
+
+# Contracts — not needed at runtime
+packages/contracts/contracts
+packages/contracts/test
+packages/contracts/scripts
+packages/contracts/artifacts
+packages/contracts/cache
+
+# Dev/test files
+**/*.test.ts
+**/*.spec.ts
+coverage
+.nyc_output
+
+# Generated files
+*.pdf
+*.pptx
+fill_pptx.py
+generate_pdf.py
+
+# Git
+.git
+.gitignore
+
+# Misc
+*.md
+*.log
+.DS_Store
+.env
+.env.*
