@@ -152,16 +152,16 @@ router.post('/list', async (req: Request, res: Response) => {
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
     if (agent.listed) return res.status(400).json({ error: 'Agent already listed' });
 
-    // ── Require minimum 7 HCS decisions (verified track record) ───
+    // ── Require minimum 1 HCS decision (proves agent is live) ──────
     try {
-      const mirrorUrl  = `${MIRROR_BASE}/api/v1/topics/${agent.hcsTopicId}/messages?limit=7&order=asc`;
+      const mirrorUrl  = `${MIRROR_BASE}/api/v1/topics/${agent.hcsTopicId}/messages?limit=1&order=asc`;
       const mirrorResp = await fetch(mirrorUrl, { signal: AbortSignal.timeout(5000) });
       if (mirrorResp.ok) {
         const mirrorData = await mirrorResp.json() as { messages: unknown[] };
         const msgCount   = mirrorData.messages?.length ?? 0;
-        if (msgCount < 7) {
+        if (msgCount < 1) {
           return res.status(400).json({
-            error: `Minimum 7 HCS decisions required before listing. Agent has ${msgCount}. Run more trade cycles to build a track record.`,
+            error: `At least 1 HCS decision is required before listing. Run the agent cycle once first to prove it is live.`,
           });
         }
       }
@@ -303,16 +303,16 @@ router.post('/post-purchase', async (req: Request, res: Response) => {
     //     completes the exchange on the NFT side.
     if (tokenId && serialNumber) {
       try {
-        const frozenNftTx = await new TransferTransaction()
+        // execute(client) auto-signs with the operator key (set via client.setOperator).
+        // Explicit freezeWith+sign is not needed for operator-signed transactions.
+        const nftTxResponse = await new TransferTransaction()
           .addNftTransfer(
             new NftId(TokenId.fromString(tokenId), serialNumber),
             AccountId.fromString(operatorAcctId),
             AccountId.fromString(buyerAccountId),
           )
           .setMaxTransactionFee(new Hbar(2))
-          .freezeWith(client);
-        const nftTransferTx = await frozenNftTx.sign(operatorKey);
-        const nftTxResponse = await nftTransferTx.execute(client);
+          .execute(client);
         await nftTxResponse.getReceipt(client);
         console.log(`[Marketplace] NFT #${serialNumber} transferred from operator to ${buyerAccountId}`);
       } catch (nftErr) {

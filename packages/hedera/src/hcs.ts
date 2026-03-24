@@ -56,12 +56,12 @@ export async function createAgentTopic(
   agentId: string,
   operatorKey: PrivateKey
 ): Promise<string> {
-  const frozen = await new TopicCreateTransaction()
+  // execute(client) auto-signs with the operator key — no explicit freezeWith needed.
+  const tx = await new TopicCreateTransaction()
     .setTopicMemo(`Arcane:${agentId}`)
     .setSubmitKey(operatorKey.publicKey)  // Only backend can post
     .setMaxTransactionFee(new Hbar(2))
-    .freezeWith(client);
-  const tx = await frozen.execute(client);
+    .execute(client);
 
   const receipt = await tx.getReceipt(client);
   const topicId = receipt.topicId!.toString(); // "0.0.4823901"
