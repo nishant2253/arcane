@@ -33,16 +33,34 @@ export interface AgentJobPayload {
   dryRun?:     boolean;
 }
 
-// ── Queue (for adding jobs from API routes) ───────────────────────
-export const agentQueue = new Queue<AgentJobPayload>(AGENT_QUEUE_NAME, {
-  connection,
-  defaultJobOptions: {
-    attempts: 3,
-    backoff:  { type: 'exponential', delay: 5000 },
-    removeOnComplete: { count: 100 },
-    removeOnFail:     { count: 50 },
-  },
-});
+// ── Lazy queue — only instantiated on first use ───────────────────
+// Eagerly creating the Queue at module load causes ioredis to connect
+// immediately; if Redis is unavailable it emits an unhandled 'error'
+// event that crashes the process before app.listen() is reached.
+let _queue: Queue<AgentJobPayload> | null = null;
+
+function getQueue(): Queue<AgentJobPayload> {
+  if (!_queue) {
+    _queue = new Queue<AgentJobPayload>(AGENT_QUEUE_NAME, {
+      connection,
+      defaultJobOptions: {
+        attempts: 3,
+        backoff:  { type: 'exponential', delay: 5000 },
+        removeOnComplete: { count: 100 },
+        removeOnFail:     { count: 50 },
+      },
+    });
+    _queue.on('error', (err) => {
+      console.error('[AgentQueue] Redis error (non-fatal):', err.message);
+    });
+  }
+  return _queue;
+}
+
+export const agentQueue = {
+  add:           (...args: Parameters<Queue<AgentJobPayload>['add']>) => getQueue().add(...args),
+  removeRepeatable: (...args: Parameters<Queue<AgentJobPayload>['removeRepeatable']>) => getQueue().removeRepeatable(...args),
+};
 
 // ── Worker (processes agent cycles) ──────────────────────────────
 export function startAgentWorker() {
@@ -66,7 +84,7 @@ export function startAgentWorker() {
     },
     {
       connection,
-      concurrency: 2,   // Max 2 agents running simultaneously
+      concurrency: 2,
     }
   );
 
@@ -79,7 +97,7 @@ export function startAgentWorker() {
   });
 
   worker.on('error', (err) => {
-    console.error('[AgentWorker] Worker error:', err);
+    console.error('[AgentWorker] Worker error (non-fatal):', err.message);
   });
 
   console.log('[AgentWorker] Worker started — listening for agent jobs...');
@@ -99,7 +117,7 @@ export async function scheduleAgentJob(
 ): Promise<void> {
   const cronPattern = getCronPattern(agentConfig.timeframe);
 
-  await agentQueue.add(
+  await getQueue().add(
     `agent-${agentConfig.agentId}`,
     { agentConfig, hcsTopicId, dryRun },
     {
