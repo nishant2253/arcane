@@ -15,8 +15,18 @@ const PORT = process.env.PORT || 3001;
 
 // ── Middleware ───────────────────────────────────────────────────
 app.use(helmet());
+// CORS_ORIGIN supports comma-separated list for multi-origin (e.g. Vercel preview + prod)
+const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3000')
+  .split(',')
+  .map(o => o.trim());
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  origin: (origin, cb) => {
+    // Allow requests with no origin (server-to-server, curl, health checks)
+    if (!origin || allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
+      return cb(null, true);
+    }
+    cb(new Error(`CORS: ${origin} not allowed`));
+  },
   credentials: true,
 }));
 app.use(express.json({ limit: '10mb' }));
