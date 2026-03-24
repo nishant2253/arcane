@@ -4,6 +4,7 @@
     "outDir":       "dist",
     "rootDir":      "../..",
     "skipLibCheck": true,
+    "lib":          ["ES2022", "DOM"],
     "baseUrl": ".",
     "paths": {
       "@tradeagent/shared": ["../../packages/shared/src"],
