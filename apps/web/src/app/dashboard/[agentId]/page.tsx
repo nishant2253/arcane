@@ -446,7 +446,6 @@ export default function AgentDashboard({ params }: { params: Promise<{ agentId: 
                   shape={<CandleShape />}
                   isAnimationActive={false}
                   minPointSize={1}
-                  baseValue={ohlcvBaseValue}
                 />
               </ComposedChart>
             </ResponsiveContainer>
