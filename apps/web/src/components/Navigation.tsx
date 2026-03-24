@@ -2,11 +2,18 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
+import dynamic from 'next/dynamic';
 import { usePathname } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { useWalletStore } from '@/stores/walletStore';
 import { BotIcon, WalletIcon, StoreIcon, LayoutDashboardIcon, MenuIcon, XIcon, PlusCircleIcon } from 'lucide-react';
-import { WalletConnectButton } from './WalletConnect';
+
+// WalletConnect uses @hashgraph/hedera-wallet-connect which has ESM directory
+// imports not supported in SSR/prerender — load client-side only.
+const WalletConnectButton = dynamic(
+  () => import('./WalletConnect').then(m => m.WalletConnectButton),
+  { ssr: false, loading: () => <div className="w-32 h-9 rounded-xl bg-gray-800/60 animate-pulse" /> }
+);
 
 const NAV_LINKS = [
   { href: '/',            label: 'Dashboard',  icon: LayoutDashboardIcon, requiresWallet: false },

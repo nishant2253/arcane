@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "@hashgraph/hedera-wallet-connect": "^1.5.1",
-    "@hashgraph/sdk": "^2.81.0",
+    "@hashgraph/proto": "^2.25.0",
+    "@hashgraph/sdk": "^2.75.0",
     "@supabase/supabase-js": "^2.49.2",
     "@tailwindcss/postcss": "^4.2.2",
     "@tradeagent/shared": "*",
@@ -37,7 +38,7 @@
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
     "eslint": "^8.57.1",
-    "eslint-config-next": "15.1.8",
+    "eslint-config-next": "^15.5.14",
     "postcss": "^8.5.3",
     "tailwindcss": "^4.2.2",
     "typescript": "^5.8.2"
